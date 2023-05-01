@@ -1,3 +1,4 @@
+use b_locrian::parser::Parser;
 use b_locrian::scanner::{Scanner, TokenType};
 use std::env;
 use std::fs;
@@ -21,6 +22,10 @@ fn main() {
                 }
             }
         }
+
+        let mut parser = Parser::new(&src);
+        let tree = parser.parse();
+        println!("{:#?}", tree);
     } else {
         println!("No such file {}", args[1]);
     };

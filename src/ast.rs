@@ -1,60 +1,73 @@
-struct Ty {}
+#[derive(Debug, Eq, PartialEq)]
+pub struct Ty {}
 
-enum BinOp {
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum BinOp {
     Add,
     Sub,
     Div,
     Mul,
 }
 
-enum UnOp {
-    // unary '-'
-    Neg
+#[derive(Debug, Eq, PartialEq)]
+pub enum UnOp {
+    // '-'
+    Neg,
+    //'!'
+    Not,
 }
 
-struct Arg {
-    name: String,
-    value: Expr,
+#[derive(Debug, Eq, PartialEq)]
+pub struct Arg {
+    pub name: String,
+    pub value: Expr,
 }
 
-enum ExprKind {
+#[derive(Debug, Eq, PartialEq)]
+pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnOp, Box<Expr>),
     Var(String),
-    IntegerLit(u32),
+    IntegerLit(i64),
     StringLit(String),
+    BoolLit(bool),
     Call(String, Vec<Arg>),
-    Subscript(Box<Expr>, Box<Expr>)
+    Subscript(Box<Expr>, Box<Expr>),
 }
 
-struct Expr {
-    kind: ExprKind,
-
+#[derive(Debug, Eq, PartialEq)]
+pub struct Expr {
+    pub kind: ExprKind,
 }
 
-struct Block {
-    body: Vec<Stmt>,
+#[derive(Debug, Eq, PartialEq)]
+pub struct Block {
+    pub body: Vec<Stmt>,
 }
 
-struct IfElse {
-    cond: Expr,
-    then_branch: Block,
-    else_branch: Option<Block>
+#[derive(Debug, Eq, PartialEq)]
+pub struct IfElse {
+    pub cond: Expr,
+    pub then_branch: Block,
+    pub else_branch: Option<Block>,
 }
 
-struct ForLoop {
-    initializer: Expr,
-    condition: Expr,
-    increment: Expr,
+#[derive(Debug, Eq, PartialEq)]
+pub struct ForLoop {
+    pub initializer: Expr,
+    pub condition: Expr,
+    pub increment: Expr,
 }
 
-struct Decl {
-    name: String,
-    ty: Ty,
-    value: Expr,
+#[derive(Debug, Eq, PartialEq)]
+pub struct Decl {
+    pub name: String,
+    pub ty: Ty,
+    pub value: Expr,
 }
 
-enum StmtKind {
+#[derive(Debug, Eq, PartialEq)]
+pub enum StmtKind {
     Decl(Box<Decl>),
     Expr(Box<Expr>),
     IfElse(Box<IfElse>),
@@ -64,8 +77,7 @@ enum StmtKind {
     Block(Box<Block>),
 }
 
-struct Stmt {
-    kind: StmtKind
+#[derive(Debug, Eq, PartialEq)]
+pub struct Stmt {
+    pub kind: StmtKind,
 }
-
-

@@ -45,18 +45,11 @@ impl<'a> Scanner<'a> {
     }
 
     fn make_token(&self, ty: TokenType) -> Token {
-        let text: &str;
-        if ty == TokenType::Eof {
-            text = "";
-        } else {
-            text = &self.text[self.start..self.current];
-        }
         Token {
             ty,
             start: self.start,
             length: self.current - self.start,
             line: self.line,
-            text,
         }
     }
 
@@ -283,23 +276,22 @@ impl<'a> Scanner<'a> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct LexicalError {
-    message: &'static str,
+    pub message: &'static str,
     // location in text
-    line: usize,
-    start: usize,
-    len: usize,
+    pub line: usize,
+    pub start: usize,
+    pub len: usize,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Token<'a> {
+pub struct Token {
     pub ty: TokenType,
-    pub text: &'a str,
     pub start: usize,
     pub length: usize,
     pub line: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenType {
     Identifier,
     NumberLit,
