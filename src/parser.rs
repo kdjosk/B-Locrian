@@ -161,7 +161,7 @@ impl<'a> Parser<'a> {
             TokenType::LParen => Self::grouping,
             TokenType::Minus => Self::unary,
             TokenType::False | TokenType::True => Self::bool_literal,
-            _ => panic!(),
+            t => panic!("Expression can't begin with {:?}", t),
         }
     }
 
@@ -265,6 +265,7 @@ impl<'a> Parser<'a> {
 
         let mut val = None;
         if self.current.ty == TokenType::Equal {
+            self.advance();
             val = Some(self.expression());
         }
         self.consume(TokenType::Semicolon, "");
