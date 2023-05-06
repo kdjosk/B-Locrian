@@ -1,19 +1,22 @@
 #[derive(Debug, Eq, PartialEq)]
 pub struct Ty {
-    kind: TyKind,
+    pub kind: TyKind,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum TyKind {
     Int64,
     Bool,
-    Array(Box<Ty>),
+    Array {
+        len: Expr,
+        ty: Box<Ty>,
+    },
     String,
     Char,
     Void,
     Function {
         ret_type: Box<Ty>,
-        args: Vec<Box<Ty>>,
+        args: Option<Vec<Box<Ty>>>,
     },
 }
 

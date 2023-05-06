@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, Decl, Expr, ExprKind, UnOp};
+use crate::ast::{BinOp, Decl, DeclKind, Expr, ExprKind, Ty, TyKind, UnOp, VarDecl};
 use crate::scanner::{Scanner, Token, TokenType};
 
 pub struct Parser<'a> {
@@ -195,8 +195,94 @@ impl<'a> Parser<'a> {
         expr
     }
 
+    /// arg (, arg)*
+    fn parse_argtypes(&mut self) -> Vec<Box<Ty>> {
+        // parse type list
+        let mut argtypes = Vec::new();
+        argtypes.push(Box::new(self.type_expr()));
+        while self.current.ty == TokenType::Comma {
+            self.advance();
+            self.type_expr();
+        }
+        argtypes
+    }
+
+    fn type_expr(&mut self) -> Ty {
+        self.advance();
+        match self.prev.ty {
+            // arr [10] int
+            TokenType::TyArray => {
+                self.consume(TokenType::LBracket, "");
+                let length = self.expression();
+                self.consume(TokenType::RBracket, "");
+                let ty = self.type_expr();
+                Ty {
+                    kind: TyKind::Array {
+                        len: length,
+                        ty: Box::new(ty),
+                    },
+                }
+            }
+            // fn (int, char) -> string
+            TokenType::Fun => {
+                self.consume(TokenType::LParen, "");
+                let mut argtypes = None;
+                if self.current.ty != TokenType::RParen {
+                    argtypes = Some(self.parse_argtypes());
+                }
+                self.consume(TokenType::RParen, "");
+                self.consume(TokenType::RArrow, "");
+                let ret_ty = self.type_expr();
+                Ty {
+                    kind: TyKind::Function {
+                        ret_type: Box::new(ret_ty),
+                        args: argtypes,
+                    },
+                }
+            }
+            TokenType::TyBool => Ty { kind: TyKind::Bool },
+            TokenType::TyInt => Ty {
+                kind: TyKind::Int64,
+            },
+            TokenType::TyChar => Ty { kind: TyKind::Char },
+            TokenType::TyString => Ty {
+                kind: TyKind::String,
+            },
+            TokenType::TyVoid => Ty { kind: TyKind::Void },
+            _ => panic!(),
+        }
+    }
+
+    /// var ident: ty (= expr)?;
+    fn var_decl(&mut self) -> Decl {
+        self.consume(TokenType::Var, "");
+        self.consume(TokenType::Identifier, "");
+        let name = &self.prev;
+        let name = &self.src[name.start..name.start + name.length];
+        self.consume(TokenType::Colon, "");
+
+        let ty = self.type_expr();
+
+        let mut val = None;
+        if self.current.ty == TokenType::Equal {
+            val = Some(self.expression());
+        }
+        self.consume(TokenType::Semicolon, "");
+
+        Decl {
+            kind: DeclKind::VarDecl(VarDecl {
+                name: name.to_string(),
+                ty,
+                val,
+            }),
+        }
+    }
+
     fn declaration(&mut self) -> Decl {
-        todo!()
+        match self.current.ty {
+            TokenType::Var => self.var_decl(),
+            _ => panic!(),
+        }
     }
 
     pub fn parse(&mut self) -> Vec<Decl> {
@@ -334,7 +420,7 @@ mod tests {
                     ty: Ty {
                         kind: TyKind::Int64
                     },
-                    val: Some(literal(10))
+                    val: None
                 })
             }
         )

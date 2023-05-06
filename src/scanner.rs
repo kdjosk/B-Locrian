@@ -172,6 +172,7 @@ impl<'a> Scanner<'a> {
                     match chars.next().unwrap() {
                         'a' => self.check_keyword("r", chars, TokenType::Var),
                         'o' => self.check_keyword("id", chars, TokenType::TyVoid),
+                        _ => TokenType::Identifier,
                     }
                 } else {
                     TokenType::Identifier
