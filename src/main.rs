@@ -24,7 +24,7 @@ fn main() {
         }
 
         let mut parser = Parser::new(&src);
-        let tree = parser.parse();
+        let tree = parser.parse_expression();
         println!("{:#?}", tree);
     } else {
         println!("No such file {}", args[1]);

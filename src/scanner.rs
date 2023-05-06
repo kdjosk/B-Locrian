@@ -167,7 +167,16 @@ impl<'a> Scanner<'a> {
             'r' => self.check_keyword("eturn", chars, TokenType::Return),
             's' => self.check_keyword("tring", chars, TokenType::TyString),
             't' => self.check_keyword("rue", chars, TokenType::True),
-            'v' => self.check_keyword("oid", chars, TokenType::TyVoid),
+            'v' => {
+                if self.current - self.start > 1 {
+                    match chars.next().unwrap() {
+                        'a' => self.check_keyword("r", chars, TokenType::Var),
+                        'o' => self.check_keyword("id", chars, TokenType::TyVoid),
+                    }
+                } else {
+                    TokenType::Identifier
+                }
+            }
             'w' => self.check_keyword("hile", chars, TokenType::While),
             _ => TokenType::Identifier,
         }
@@ -283,7 +292,7 @@ pub struct LexicalError {
     pub len: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Token {
     pub ty: TokenType,
     pub start: usize,
@@ -312,6 +321,7 @@ pub enum TokenType {
     Equal,
     And,
     Or,
+    Var,
     EqualEqual,
     GreaterEqual,
     LessEqual,

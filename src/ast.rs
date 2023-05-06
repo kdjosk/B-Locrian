@@ -1,5 +1,21 @@
 #[derive(Debug, Eq, PartialEq)]
-pub struct Ty {}
+pub struct Ty {
+    kind: TyKind,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum TyKind {
+    Int64,
+    Bool,
+    Array(Box<Ty>),
+    String,
+    Char,
+    Void,
+    Function {
+        ret_type: Box<Ty>,
+        args: Vec<Box<Ty>>,
+    },
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BinOp {
@@ -42,14 +58,14 @@ pub struct Expr {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Block {
-    pub body: Vec<Stmt>,
+    pub body: Vec<Box<Decl>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct IfElse {
     pub cond: Expr,
-    pub then_branch: Block,
-    pub else_branch: Option<Block>,
+    pub then_branch: Box<Block>,
+    pub else_branch: Option<Box<Block>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -61,19 +77,37 @@ pub struct ForLoop {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Decl {
+    pub kind: DeclKind,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct FunDecl {
     pub name: String,
     pub ty: Ty,
-    pub value: Expr,
+    pub code: Vec<Box<Decl>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct VarDecl {
+    pub name: String,
+    pub ty: Ty,
+    pub val: Option<Expr>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum DeclKind {
+    FunDecl(Box<FunDecl>),
+    VarDecl(VarDecl),
+    Stmt(Box<Stmt>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum StmtKind {
-    Decl(Box<Decl>),
-    Expr(Box<Expr>),
+    Expr(Expr),
     IfElse(Box<IfElse>),
     ForLoop(Box<ForLoop>),
-    Print(Box<Expr>),
-    Return(Box<Expr>),
+    Print(Expr),
+    Return(Expr),
     Block(Box<Block>),
 }
 

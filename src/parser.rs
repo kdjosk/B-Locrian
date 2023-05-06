@@ -1,11 +1,11 @@
-use crate::ast::{BinOp, Expr, ExprKind, UnOp};
+use crate::ast::{BinOp, Decl, Expr, ExprKind, UnOp};
 use crate::scanner::{Scanner, Token, TokenType};
 
 pub struct Parser<'a> {
     src: &'a str,
     scanner: Scanner<'a>,
-    current: Option<Token>,
-    prev: Option<Token>,
+    current: Token,
+    prev: Token,
     had_error: bool,
 }
 
@@ -19,22 +19,29 @@ enum Precedence {
 impl<'a> Parser<'a> {
     pub fn new(src: &'a str) -> Parser {
         let scanner = Scanner::new(src);
+        let before_start_token = Token {
+            ty: TokenType::Eof,
+            start: 0,
+            length: 0,
+            line: 0,
+        };
+
         Parser {
             src,
             scanner,
-            current: None,
-            prev: None,
+            current: before_start_token.clone(),
+            prev: before_start_token.clone(),
             had_error: false,
         }
     }
 
     fn advance(&mut self) {
-        self.prev = self.current.take();
+        self.prev = self.current;
         let mut t = self.scanner.scan_token();
         loop {
             match t {
                 Ok(t) => {
-                    self.current = Some(t);
+                    self.current = t;
                     break;
                 }
                 Err(e) => {
@@ -47,7 +54,7 @@ impl<'a> Parser<'a> {
     }
 
     fn consume(&mut self, token_ty: TokenType, msg: &'static str) {
-        if self.current.as_ref().unwrap().ty == token_ty {
+        if self.current.ty == token_ty {
             self.advance();
             return;
         }
@@ -56,7 +63,7 @@ impl<'a> Parser<'a> {
     }
 
     fn error_at_current(&self, msg: &'static str) {
-        self.error_at(self.current.as_ref().unwrap(), msg);
+        self.error_at(&self.current, msg);
     }
 
     fn error_at(&self, token: &Token, msg: &'static str) {
@@ -64,7 +71,7 @@ impl<'a> Parser<'a> {
     }
 
     fn number(&mut self) -> Expr {
-        let token = self.prev.as_ref().unwrap();
+        let token = &self.prev;
         let text = &self.src[token.start..token.start + token.length];
         let num: i64 = text.parse().unwrap();
         Expr {
@@ -73,7 +80,7 @@ impl<'a> Parser<'a> {
     }
 
     fn string(&mut self) -> Expr {
-        let token = self.prev.as_ref().unwrap();
+        let token = self.prev;
         let text = &self.src[token.start + 1..token.start + token.length - 1];
         Expr {
             kind: ExprKind::StringLit(text.to_string()),
@@ -87,7 +94,7 @@ impl<'a> Parser<'a> {
     }
 
     fn unary(&mut self) -> Expr {
-        let op = self.prev.as_ref().unwrap().ty;
+        let op = self.prev.ty;
         let op = match op {
             TokenType::Minus => UnOp::Neg,
             TokenType::Bang => UnOp::Not,
@@ -100,7 +107,7 @@ impl<'a> Parser<'a> {
     }
 
     fn bool_literal(&mut self) -> Expr {
-        let val = self.prev.as_ref().unwrap().ty;
+        let val = self.prev.ty;
         let val = match val {
             TokenType::True => true,
             TokenType::False => false,
@@ -112,7 +119,7 @@ impl<'a> Parser<'a> {
     }
 
     fn binary(&mut self, lhs: Expr) -> Expr {
-        let op = self.prev.as_ref().unwrap().ty;
+        let op = self.prev.ty;
         let op = self.get_bin_op(op).unwrap();
         let rhs = self.parse_precedence(self.precedence(op) as i32 + 1);
         Expr {
@@ -138,7 +145,7 @@ impl<'a> Parser<'a> {
     }
 
     fn get_current_precedence(&self) -> Precedence {
-        let token_ty = self.current.as_ref().unwrap().ty;
+        let token_ty = self.current.ty;
 
         if let Some(op) = self.get_bin_op(token_ty) {
             self.precedence(op)
@@ -176,19 +183,35 @@ impl<'a> Parser<'a> {
 
     fn parse_precedence(&mut self, precedence: i32) -> Expr {
         self.advance();
-        let prefix_rule = self.get_prefix_rule(self.prev.as_ref().unwrap().ty);
+        let prefix_rule = self.get_prefix_rule(self.prev.ty);
 
         let mut expr = prefix_rule(self);
 
         while precedence <= self.get_current_precedence() as i32 {
             self.advance();
-            let infix_rule = self.get_infix_rule(self.prev.as_ref().unwrap().ty);
+            let infix_rule = self.get_infix_rule(self.prev.ty);
             expr = infix_rule(self, expr);
         }
         expr
     }
 
-    pub fn parse(&mut self) -> Expr {
+    fn declaration(&mut self) -> Decl {
+        todo!()
+    }
+
+    pub fn parse(&mut self) -> Vec<Decl> {
+        self.advance();
+
+        let mut program = Vec::new();
+        while self.current.ty != TokenType::Eof {
+            program.push(self.declaration());
+        }
+
+        program
+    }
+
+    /// for use in REPL and testing convenience
+    pub fn parse_expression(&mut self) -> Expr {
         self.advance();
         let expr = self.expression();
         self.consume(TokenType::Eof, "Expected end of expression.");
@@ -198,6 +221,8 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::{Decl, DeclKind, Ty, TyKind, VarDecl};
+
     use super::*;
 
     fn literal(val: i64) -> Expr {
@@ -220,31 +245,31 @@ mod tests {
 
     #[test]
     fn test_addition() {
-        let expr = Parser::new("2 + 3").parse();
+        let expr = Parser::new("2 + 3").parse_expression();
         assert_eq!(expr, binary(BinOp::Add, literal(2), literal(3)))
     }
 
     #[test]
     fn test_subtraction() {
-        let expr = Parser::new("2 - 3").parse();
+        let expr = Parser::new("2 - 3").parse_expression();
         assert_eq!(expr, binary(BinOp::Sub, literal(2), literal(3)))
     }
 
     #[test]
     fn test_multiplication() {
-        let expr = Parser::new("2 * 3").parse();
+        let expr = Parser::new("2 * 3").parse_expression();
         assert_eq!(expr, binary(BinOp::Mul, literal(2), literal(3)))
     }
 
     #[test]
     fn test_division() {
-        let expr = Parser::new("2 / 3").parse();
+        let expr = Parser::new("2 / 3").parse_expression();
         assert_eq!(expr, binary(BinOp::Div, literal(2), literal(3)))
     }
 
     #[test]
     fn test_grouping() {
-        let expr = Parser::new("(2 + 3) * 4").parse();
+        let expr = Parser::new("(2 + 3) * 4").parse_expression();
         assert_eq!(
             expr,
             binary(
@@ -257,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_raising_precedence() {
-        let expr = Parser::new("2 + 3 * -4").parse();
+        let expr = Parser::new("2 + 3 * -4").parse_expression();
         assert_eq!(
             expr,
             binary(
@@ -270,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_descending_precedence() {
-        let expr = Parser::new("-4 * 3 + 2").parse();
+        let expr = Parser::new("-4 * 3 + 2").parse_expression();
         assert_eq!(
             expr,
             binary(
@@ -278,6 +303,40 @@ mod tests {
                 binary(BinOp::Mul, unary(UnOp::Neg, literal(4)), literal(3)),
                 literal(2),
             )
+        )
+    }
+
+    #[test]
+    fn test_var_decl_with_init() {
+        let decl = &Parser::new("var ident: int = 10;").parse()[0];
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::VarDecl(VarDecl {
+                    name: "ident".to_string(),
+                    ty: Ty {
+                        kind: TyKind::Int64
+                    },
+                    val: Some(literal(10))
+                })
+            }
+        )
+    }
+
+    #[test]
+    fn test_var_decl_no_init() {
+        let decl = &Parser::new("var ident: int;").parse()[0];
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::VarDecl(VarDecl {
+                    name: "ident".to_string(),
+                    ty: Ty {
+                        kind: TyKind::Int64
+                    },
+                    val: Some(literal(10))
+                })
+            }
         )
     }
 }
