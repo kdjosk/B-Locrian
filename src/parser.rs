@@ -1,6 +1,6 @@
 use crate::ast::{
     BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, UnOp,
-    VarDecl,
+    VarDecl, ForLoop,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
     }
 
     fn error_at(&self, token: &Token, msg: &'static str) {
-        eprintln!("Syntax error: {}, at line {}", msg, token.line);
+        eprintln!("Syntax error: {}, at line {}, on token '{}'", msg, token.line, self.string_from_src(token.start, token.length));
     }
 
     fn number(&mut self) -> Expr {
@@ -461,6 +461,59 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn expr_stmt(&mut self) -> Stmt {
+        let expr = self.expression();
+        self.consume(TokenType::Semicolon, "Expected a ';' after an expression");
+        Stmt {
+            kind: StmtKind::Expr(expr)
+        }
+    }
+
+    /// for ((expr_stmt | var_decl | ;) expr? ; expr?) block
+    fn for_stmt(&mut self) -> Stmt {
+        self.advance();  // go through the 'for'
+        self.consume(TokenType::LParen, "Expected a '(' after 'for' keyword");
+        let initializer = match self.current.ty {
+            TokenType::Semicolon => { 
+                self.advance();  // go through the ';' 
+                None
+            },
+            TokenType::Var => Some(self.var_decl()),
+            _ => Some(Decl{ kind: DeclKind::Stmt(self.expr_stmt())}),
+        };
+
+        let condition = match self.current.ty {
+            TokenType::Semicolon => None,
+            _ => Some(self.expression()),
+        };
+
+        self.advance();  // go through ';'
+
+        let increment = match self.current.ty {
+            TokenType::RParen => None,
+            _ => Some(self.expression()),
+        };
+
+        self.advance();  // go through ';'
+
+        eprintln!("{:?}", increment);
+        self.consume(TokenType::RParen, "Expected a ')' after the increment expression of the for loop");
+
+        let body = self.block_stmt();
+
+        Stmt {
+            kind: StmtKind::ForLoop(
+                Box::new(ForLoop{
+                    initializer,
+                    condition,
+                    increment,
+                    body: Box::new(body)
+                })
+            )
+        }
+        
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
@@ -609,7 +662,7 @@ mod tests {
         }
     }
 
-    fn for_stmt(initializer: Decl, condition: Expr, increment: Expr, body: Stmt) -> Stmt {
+    fn for_stmt(initializer: Option<Decl>, condition: Option<Expr>, increment: Option<Expr>, body: Stmt) -> Stmt {
         Stmt {
             kind: StmtKind::ForLoop(Box::new(ForLoop {
                 initializer,
@@ -902,9 +955,9 @@ mod tests {
         assert_eq!(
             decl,
             &decl_stmt(for_stmt(
-                var_decl("i".to_string(), int_type(), Some(literal(0))),
-                binary(BinOp::Less, var_expr("i"), literal(10)),
-                binary(BinOp::Assign, var_expr("i"), binary(BinOp::Add, var_expr("i"), literal(1))),
+                Some(var_decl("i".to_string(), int_type(), Some(literal(0)))),
+                Some(binary(BinOp::Less, var_expr("i"), literal(10))),
+                Some(binary(BinOp::Assign, var_expr("i"), binary(BinOp::Add, var_expr("i"), literal(1)))),
                 block_stmt(vec![decl_stmt(print_stmt(string_literal("loop")))])
             ))
         )

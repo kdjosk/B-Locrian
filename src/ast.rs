@@ -75,9 +75,9 @@ pub struct IfStmt {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ForLoop {
-    pub initializer: Decl,
-    pub condition: Expr,
-    pub increment: Expr,
+    pub initializer: Option<Decl>,
+    pub condition: Option<Expr>,
+    pub increment: Option<Expr>,
     pub body: Box<Stmt>,
 }
 
