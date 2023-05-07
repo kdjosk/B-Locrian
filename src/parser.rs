@@ -1,6 +1,6 @@
 use crate::ast::{
     BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, UnOp,
-    VarDecl, ForLoop,
+    VarDecl, ForLoop, WhileLoop,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -514,6 +514,19 @@ impl<'a> Parser<'a> {
         
     }
 
+    fn while_stmt(&mut self) -> Stmt {
+        self.advance();  // go through 'while'
+        let condition = self.expression();
+        let body = self.block_stmt();
+        eprintln!("{:?}", body);
+        Stmt {
+            kind: StmtKind::WhileLoop(Box::new(WhileLoop {
+                condition,
+                body: Box::new(body),
+            }))
+        }    
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
@@ -533,7 +546,12 @@ impl<'a> Parser<'a> {
             TokenType::For => Decl {
                 kind: DeclKind::Stmt(self.for_stmt()),
             },
-            t => panic!("Declaration can't begin with token {:?}", t),
+            TokenType::While => Decl {
+                kind: DeclKind::Stmt(self.while_stmt()),
+            },
+            _ => Decl {
+                kind: DeclKind::Stmt(self.expr_stmt()),
+            }
         }
     }
 
@@ -559,7 +577,7 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::ast::{
-        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl,
+        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl, WhileLoop,
     };
 
     use super::*;
@@ -652,6 +670,12 @@ mod tests {
         }
     }
 
+    fn expr_stmt(expr: Expr) -> Stmt {
+        Stmt {
+            kind: StmtKind::Expr(expr),
+        }
+    }
+
     fn if_stmt(cond: Expr, then_branch: Stmt, else_branch: Stmt) -> Stmt {
         Stmt {
             kind: StmtKind::IfStmt(Box::new(IfStmt {
@@ -670,6 +694,15 @@ mod tests {
                 increment,
                 body: Box::new(body),
             })),
+        }
+    }
+
+    fn while_stmt(condition: Expr, body: Stmt) -> Stmt {
+        Stmt {
+            kind: StmtKind::WhileLoop(Box::new(WhileLoop{
+                condition,
+                body: Box::new(body),
+            }))
         }
     }
 
@@ -960,6 +993,30 @@ mod tests {
                 Some(binary(BinOp::Assign, var_expr("i"), binary(BinOp::Add, var_expr("i"), literal(1)))),
                 block_stmt(vec![decl_stmt(print_stmt(string_literal("loop")))])
             ))
+        )
+    }
+
+    #[test]
+    fn test_while_loop() {
+        let decl = &Parser::new(
+            "while a > 10 {
+                a = a - 1;
+            }"
+        )
+        .parse()[0];
+
+        assert_eq!(
+            decl,
+            &decl_stmt(
+                while_stmt(
+                    binary(BinOp::Greater, var_expr("a"), literal(10)), 
+                    block_stmt(
+                        vec![
+                            decl_stmt(expr_stmt(binary(BinOp::Assign, var_expr("a"), binary(BinOp::Sub, var_expr("a"), literal(1)))))
+                        ]
+                    )
+                )
+            )
         )
     }
 }
