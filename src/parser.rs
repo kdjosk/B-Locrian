@@ -358,10 +358,7 @@ impl<'a> Parser<'a> {
 
         let ty = self.type_expr();
 
-        self.consume(
-            TokenType::Semicolon,
-            "Expected a ';' after a function declaration.",
-        );
+        let body = self.block();
 
         Decl {
             kind: DeclKind::FunDecl(FunDecl {
@@ -373,7 +370,7 @@ impl<'a> Parser<'a> {
                     },
                 },
                 param_names: names,
-                code: None,
+                code: Box::new(body),
             }),
         }
     }
@@ -409,12 +406,27 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn return_stmt(&mut self) -> Decl {
+        self.consume(TokenType::Return, "");
+        let expr = self.expression();
+        self.consume(
+            TokenType::Semicolon,
+            "Expected a ';' after a return statement",
+        );
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Return(expr),
+            }),
+        }
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
             TokenType::Fun => self.fun_decl(),
             TokenType::LBrace => self.block(),
             TokenType::Print => self.print_stmt(),
+            TokenType::Return => self.return_stmt(),
             t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
@@ -526,6 +538,14 @@ mod tests {
         Decl {
             kind: DeclKind::Stmt(Stmt {
                 kind: StmtKind::Print(expr),
+            }),
+        }
+    }
+
+    fn block_stmt_decl(body: Vec<Decl>) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Block(Box::new(body)),
             }),
         }
     }
@@ -683,22 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fun_decl_no_body() {
-        let decl = &Parser::new("fn foo(a: int, b: int) -> int;").parse()[0];
-        assert_eq!(
-            decl,
-            &Decl {
-                kind: DeclKind::FunDecl(FunDecl {
-                    name: "foo".to_string(),
-                    ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
-                    param_names: Some(vec!["a".to_string(), "b".to_string()]),
-                    code: None
-                })
-            }
-        )
-    }
-
-    #[test]
     fn test_fun_decl() {
         let decl = &Parser::new("fn foo(a: int, b: int) -> int { return a * b;}").parse()[0];
         assert_eq!(
@@ -708,7 +712,7 @@ mod tests {
                     name: "foo".to_string(),
                     ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
                     param_names: Some(vec!["a".to_string(), "b".to_string()]),
-                    code: Some(Box::new(vec![return_stmt_decl(binary(
+                    code: Box::new(block_stmt_decl(vec![return_stmt_decl(binary(
                         BinOp::Mul,
                         var_expr("a"),
                         var_expr("b")

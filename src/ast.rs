@@ -83,7 +83,7 @@ pub struct FunDecl {
     pub name: String,
     pub ty: Ty,
     pub param_names: Option<Vec<String>>,
-    pub code: Option<Box<Vec<Decl>>>,
+    pub code: Box<Decl>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
