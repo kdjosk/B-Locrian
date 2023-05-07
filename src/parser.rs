@@ -392,11 +392,21 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn print_stmt(&mut self) -> Decl {
+        self.consume(TokenType::Print, "");
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Print(self.expression()),
+            }),
+        }
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
             TokenType::Fun => self.fun_decl(),
             TokenType::LBrace => self.block(),
+            TokenType::Print => self.print_stmt(),
             t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
