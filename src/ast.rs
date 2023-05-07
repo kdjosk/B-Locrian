@@ -82,6 +82,12 @@ pub struct ForLoop {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub struct WhileLoop {
+    pub condition: Expr,
+    pub body: Box<Stmt>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct Decl {
     pub kind: DeclKind,
 }
@@ -113,6 +119,7 @@ pub enum StmtKind {
     Expr(Expr),
     IfStmt(Box<IfStmt>),
     ForLoop(Box<ForLoop>),
+    WhileLoop(Box<WhileLoop>),
     Print(Expr),
     Return(Expr),
     Block(Box<Vec<Decl>>),
