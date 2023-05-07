@@ -26,6 +26,13 @@ pub enum BinOp {
     Sub,
     Div,
     Mul,
+    Greater,
+    GreaterOrEqual,
+    Less,
+    LessOrEqual,
+    Equal,
+    NotEqual,
+    Assign,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -68,9 +75,10 @@ pub struct IfStmt {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ForLoop {
-    pub initializer: Expr,
+    pub initializer: Decl,
     pub condition: Expr,
     pub increment: Expr,
+    pub body: Box<Stmt>,
 }
 
 #[derive(Debug, Eq, PartialEq)]

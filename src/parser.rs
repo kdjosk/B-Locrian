@@ -14,6 +14,9 @@ pub struct Parser<'a> {
 
 enum Precedence {
     None = -100,
+    Assignment = 7,
+    Equality = 8,
+    Comparison = 9,
     Term = 10,
     Factor = 11,
     Unary = 30,
@@ -143,6 +146,13 @@ impl<'a> Parser<'a> {
             TokenType::Minus => Some(BinOp::Sub),
             TokenType::Slash => Some(BinOp::Div),
             TokenType::Star => Some(BinOp::Mul),
+            TokenType::Less => Some(BinOp::Less),
+            TokenType::Greater => Some(BinOp::Greater),
+            TokenType::LessEqual => Some(BinOp::LessOrEqual),
+            TokenType::GreaterEqual => Some(BinOp::GreaterOrEqual),
+            TokenType::EqualEqual => Some(BinOp::Equal),
+            TokenType::BangEqual => Some(BinOp::NotEqual),
+            TokenType::Equal => Some(BinOp::Assign),
             _ => None,
         }
     }
@@ -151,6 +161,11 @@ impl<'a> Parser<'a> {
         match op {
             BinOp::Add | BinOp::Sub => Precedence::Term,
             BinOp::Div | BinOp::Mul => Precedence::Factor,
+            BinOp::Less | BinOp::LessOrEqual | BinOp::Greater | BinOp::GreaterOrEqual => {
+                Precedence::Comparison
+            }
+            BinOp::Equal | BinOp::NotEqual => Precedence::Equality,
+            BinOp::Assign => Precedence::Assignment,
         }
     }
 
@@ -183,13 +198,20 @@ impl<'a> Parser<'a> {
             TokenType::Plus
             | TokenType::Minus
             | TokenType::Slash
-            | TokenType::Star => Self::binary,
+            | TokenType::Star
+            | TokenType::EqualEqual
+            | TokenType::BangEqual
+            | TokenType::Less
+            | TokenType::LessEqual
+            | TokenType::Greater
+            | TokenType::GreaterEqual 
+            | TokenType::Equal => Self::binary,
             _ => panic!(),
         }
     }
 
     fn expression(&mut self) -> Expr {
-        self.parse_precedence(Precedence::Term as i32)
+        self.parse_precedence(Precedence::Assignment as i32)
     }
 
     fn parse_precedence(&mut self, precedence: i32) -> Expr {
@@ -455,6 +477,9 @@ impl<'a> Parser<'a> {
             TokenType::If => Decl {
                 kind: DeclKind::Stmt(self.if_stmt()),
             },
+            TokenType::For => Decl {
+                kind: DeclKind::Stmt(self.for_stmt()),
+            },
             t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
@@ -480,7 +505,9 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Decl, DeclKind, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl};
+    use crate::ast::{
+        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl,
+    };
 
     use super::*;
 
@@ -582,6 +609,17 @@ mod tests {
         }
     }
 
+    fn for_stmt(initializer: Decl, condition: Expr, increment: Expr, body: Stmt) -> Stmt {
+        Stmt {
+            kind: StmtKind::ForLoop(Box::new(ForLoop {
+                initializer,
+                condition,
+                increment,
+                body: Box::new(body),
+            })),
+        }
+    }
+
     fn decl_stmt(stmt: Stmt) -> Decl {
         Decl {
             kind: DeclKind::Stmt(stmt),
@@ -613,6 +651,42 @@ mod tests {
     }
 
     #[test]
+    fn test_equality() {
+        let expr = Parser::new("2 == 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::Equal, literal(2), literal(4)))
+    }
+
+    #[test]
+    fn test_not_equal() {
+        let expr = Parser::new("2 != 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::NotEqual, literal(2), literal(4)))
+    }
+
+    #[test]
+    fn test_less() {
+        let expr = Parser::new("2 < 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::Less, literal(2), literal(4)))
+    }
+
+    #[test]
+    fn test_greater() {
+        let expr = Parser::new("2 > 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::Greater, literal(2), literal(4)))
+    }
+
+    #[test]
+    fn test_less_or_equal() {
+        let expr = Parser::new("2 <= 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::LessOrEqual, literal(2), literal(4)))
+    }
+
+    #[test]
+    fn test_greater_or_equal() {
+        let expr = Parser::new("2 >= 4").parse_expression();
+        assert_eq!(expr, binary(BinOp::GreaterOrEqual, literal(2), literal(4)))
+    }
+
+    #[test]
     fn test_grouping() {
         let expr = Parser::new("(2 + 3) * 4").parse_expression();
         assert_eq!(
@@ -626,27 +700,49 @@ mod tests {
     }
 
     #[test]
+    fn test_assignment() {
+        let expr = Parser::new("a = 2").parse_expression();
+        assert_eq!(expr, binary(BinOp::Assign, var_expr("a"), literal(2)))
+    }
+
+    #[test]
     fn test_raising_precedence() {
-        let expr = Parser::new("2 + 3 * -4").parse_expression();
+        let expr = Parser::new("4 == 5 < 2 + 3 * -4").parse_expression();
         assert_eq!(
             expr,
             binary(
-                BinOp::Add,
-                literal(2),
-                binary(BinOp::Mul, literal(3), unary(UnOp::Neg, literal(4)))
+                BinOp::Equal,
+                literal(4),
+                binary(
+                    BinOp::Less,
+                    literal(5),
+                    binary(
+                        BinOp::Add,
+                        literal(2),
+                        binary(BinOp::Mul, literal(3), unary(UnOp::Neg, literal(4)))
+                    )
+                )
             )
         )
     }
 
     #[test]
     fn test_descending_precedence() {
-        let expr = Parser::new("-4 * 3 + 2").parse_expression();
+        let expr = Parser::new("-4 * 3 + 2 > 5 == 4").parse_expression();
         assert_eq!(
             expr,
             binary(
-                BinOp::Add,
-                binary(BinOp::Mul, unary(UnOp::Neg, literal(4)), literal(3)),
-                literal(2),
+                BinOp::Equal,
+                binary(
+                    BinOp::Greater,
+                    binary(
+                        BinOp::Add,
+                        binary(BinOp::Mul, unary(UnOp::Neg, literal(4)), literal(3)),
+                        literal(2),
+                    ),
+                    literal(5),
+                ),
+                literal(4),
             )
         )
     }
@@ -790,6 +886,26 @@ mod tests {
                         block_stmt(vec![decl_stmt(print_stmt(string_literal("unknown")))])
                     )
                 )
+            ))
+        )
+    }
+
+    #[test]
+    fn test_for_loop() {
+        let decl = &Parser::new(
+            "for (var i: int = 0; i < 10; i = i + 1) {
+                 print \"loop\";
+            }",
+        )
+        .parse()[0];
+
+        assert_eq!(
+            decl,
+            &decl_stmt(for_stmt(
+                var_decl("i".to_string(), int_type(), Some(literal(0))),
+                binary(BinOp::Less, var_expr("i"), literal(10)),
+                binary(BinOp::Assign, var_expr("i"), binary(BinOp::Add, var_expr("i"), literal(1))),
+                block_stmt(vec![decl_stmt(print_stmt(string_literal("loop")))])
             ))
         )
     }
