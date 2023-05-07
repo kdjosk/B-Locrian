@@ -243,7 +243,7 @@ impl<'a> Parser<'a> {
     fn type_expr(&mut self) -> Ty {
         self.advance();
         match self.prev.ty {
-            // [10; int]
+            // [int; 10]
             TokenType::LBracket => {
                 let ty = self.type_expr();
                 self.consume(
@@ -494,9 +494,6 @@ impl<'a> Parser<'a> {
             _ => Some(self.expression()),
         };
 
-        self.advance();  // go through ';'
-
-        eprintln!("{:?}", increment);
         self.consume(TokenType::RParen, "Expected a ')' after the increment expression of the for loop");
 
         let body = self.block_stmt();
@@ -518,7 +515,6 @@ impl<'a> Parser<'a> {
         self.advance();  // go through 'while'
         let condition = self.expression();
         let body = self.block_stmt();
-        eprintln!("{:?}", body);
         Stmt {
             kind: StmtKind::WhileLoop(Box::new(WhileLoop {
                 condition,

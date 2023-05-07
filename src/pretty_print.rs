@@ -11,7 +11,8 @@ impl<'a> AstPrinter<'a> {
 
     pub fn print_tree(&self) {
         for decl in self.ast {
-            self.walk_decl(decl, String::new())
+            self.walk_decl(decl, String::new());
+            println!("");
         }
     }
 
@@ -74,13 +75,24 @@ impl<'a> AstPrinter<'a> {
                 println!("{}  body:", prefix);
                 self.walk_stmt(&forloop.body, prefix + "    ");
             }
-            StmtKind::WhileLoop(_) => todo!(),
+            StmtKind::WhileLoop(stmt) => {
+                println!("{}while loop", prefix);
+                print!("{}  condition: ", prefix);
+                self.walk_expr(&stmt.condition);
+                print!("\n");
+                println!("{}  body:", prefix);
+                self.walk_stmt(&stmt.body, prefix + "    ");
+            }
             StmtKind::Print(expr) => {
                 print!("{}print ", prefix);
                 self.walk_expr(expr);
                 print!("\n");
             }
-            StmtKind::Return(_) => todo!(),
+            StmtKind::Return(expr) => {
+                print!("{}return ", prefix);
+                self.walk_expr(expr);
+                print!("\n");
+            }
             StmtKind::Block(block) => {
                 println!("{}block statement", prefix);
                 for decl in block.iter() {
@@ -110,11 +122,13 @@ impl<'a> AstPrinter<'a> {
         print!("{}  type: ", prefix);
         self.walk_type(&fun_decl.ty);
         print!("\n");
-        print!("{}  param_names: ", prefix,);
+        print!("{}  param_names: ", prefix);
         match &fun_decl.param_names {
             Some(pl) => print!("{:?}\n", pl),
             None => print!("\n"),
         }
+        println!("{}  body:", prefix);
+        self.walk_stmt(&fun_decl.code, prefix + "    ");
     }
 
     fn walk_expr(&self, expr: &Expr) {
