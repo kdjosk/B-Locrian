@@ -99,9 +99,9 @@ pub struct VarDecl {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DeclKind {
-    FunDecl(Box<FunDecl>),
+    FunDecl(FunDecl),
     VarDecl(VarDecl),
-    Stmt(Box<Stmt>),
+    Stmt(Stmt),
 }
 
 #[derive(Debug, Eq, PartialEq)]

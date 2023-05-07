@@ -326,7 +326,7 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Decl, DeclKind, Ty, TyKind, VarDecl};
+    use crate::ast::{Decl, DeclKind, FunDecl, Stmt, StmtKind, Ty, TyKind, VarDecl};
 
     use super::*;
 
@@ -345,6 +345,12 @@ mod tests {
     fn unary(op: UnOp, val: Expr) -> Expr {
         Expr {
             kind: ExprKind::Unary(op, Box::new(val)),
+        }
+    }
+
+    fn var_expr(name: &'static str) -> Expr {
+        Expr {
+            kind: ExprKind::Var(name.to_string()),
         }
     }
 
@@ -452,6 +458,12 @@ mod tests {
     }
 
     #[test]
+    fn test_var_expr() {
+        let expr = Parser::new("a").parse_expression();
+        assert_eq!(expr, var_expr("a"));
+    }
+
+    #[test]
     fn test_var_decl_with_init() {
         let decl = &Parser::new("var ident: int = 10;").parse()[0];
         assert_eq!(
@@ -511,6 +523,32 @@ mod tests {
                 ),
                 None
             )
+        )
+    }
+
+    #[test]
+    fn test_fun_decl() {
+        let decl = &Parser::new("fn foo(a: int, b: int) -> int { return a * b;}").parse()[0];
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::FunDecl(FunDecl {
+                    name: "foo".to_string(),
+                    ty: function_type(
+                        int_type(),
+                        Some(vec![Box::new(int_type()), Box::new(int_type())])
+                    ),
+                    code: vec![Box::new(Decl {
+                        kind: DeclKind::Stmt(Stmt {
+                            kind: StmtKind::Return(binary(
+                                BinOp::Mul,
+                                var_expr("a"),
+                                var_expr("b")
+                            ))
+                        })
+                    })]
+                })
+            }
         )
     }
 }
