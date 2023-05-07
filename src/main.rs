@@ -1,4 +1,5 @@
 use b_locrian::parser::Parser;
+use b_locrian::pretty_print::AstPrinter;
 use b_locrian::scanner::{Scanner, TokenType};
 use std::env;
 use std::fs;
@@ -24,8 +25,8 @@ fn main() {
         }
 
         let mut parser = Parser::new(&src);
-        let tree = parser.parse_expression();
-        println!("{:#?}", tree);
+        let tree = parser.parse();
+        AstPrinter::new(&tree).print_tree();
     } else {
         println!("No such file {}", args[1]);
     };
