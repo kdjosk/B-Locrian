@@ -1,5 +1,6 @@
 use crate::ast::{
-    BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, Stmt, StmtKind, Ty, TyKind, UnOp, VarDecl,
+    BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, UnOp,
+    VarDecl,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -358,7 +359,7 @@ impl<'a> Parser<'a> {
 
         let ty = self.type_expr();
 
-        let body = self.block();
+        let body = self.block_stmt();
 
         Decl {
             kind: DeclKind::FunDecl(FunDecl {
@@ -375,7 +376,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn block(&mut self) -> Decl {
+    fn block_stmt(&mut self) -> Stmt {
         self.consume(TokenType::LBrace, "Block statement has to begin with a '{'");
         let mut decls = Vec::new();
 
@@ -385,38 +386,56 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenType::RBrace, "Missing '}' after a block statement.");
 
-        Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Block(Box::new(decls)),
-            }),
+        Stmt {
+            kind: StmtKind::Block(Box::new(decls)),
         }
     }
 
-    fn print_stmt(&mut self) -> Decl {
+    fn print_stmt(&mut self) -> Stmt {
         self.consume(TokenType::Print, "");
         let expr = self.expression();
         self.consume(
             TokenType::Semicolon,
             "Expected a ';' after a print statement",
         );
-        Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Print(expr),
-            }),
+        Stmt {
+            kind: StmtKind::Print(expr),
         }
     }
 
-    fn return_stmt(&mut self) -> Decl {
+    fn return_stmt(&mut self) -> Stmt {
         self.consume(TokenType::Return, "");
         let expr = self.expression();
         self.consume(
             TokenType::Semicolon,
             "Expected a ';' after a return statement",
         );
-        Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Return(expr),
-            }),
+        Stmt {
+            kind: StmtKind::Return(expr),
+        }
+    }
+
+    /// if expr block (else (ifstmt | block))?
+    fn if_stmt(&mut self) -> Stmt {
+        self.advance(); // move through 'if'
+        let cond = self.expression();
+        let then_branch = Box::new(self.block_stmt());
+        let mut else_branch = None;
+        if self.current.ty == TokenType::Else {
+            self.advance();
+            else_branch = match self.current.ty {
+                TokenType::If => Some(Box::new(self.if_stmt())),
+                TokenType::LBrace => Some(Box::new(self.block_stmt())),
+                t => panic!("Illegal token {:?} after 'else' keyword", t),
+            }
+        }
+
+        Stmt {
+            kind: StmtKind::IfStmt(Box::new(IfStmt {
+                cond,
+                then_branch,
+                else_branch,
+            })),
         }
     }
 
@@ -424,9 +443,18 @@ impl<'a> Parser<'a> {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
             TokenType::Fun => self.fun_decl(),
-            TokenType::LBrace => self.block(),
-            TokenType::Print => self.print_stmt(),
-            TokenType::Return => self.return_stmt(),
+            TokenType::LBrace => Decl {
+                kind: DeclKind::Stmt(self.block_stmt()),
+            },
+            TokenType::Print => Decl {
+                kind: DeclKind::Stmt(self.print_stmt()),
+            },
+            TokenType::Return => Decl {
+                kind: DeclKind::Stmt(self.return_stmt()),
+            },
+            TokenType::If => Decl {
+                kind: DeclKind::Stmt(self.if_stmt()),
+            },
             t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
@@ -452,7 +480,7 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Decl, DeclKind, FunDecl, Stmt, StmtKind, Ty, TyKind, VarDecl};
+    use crate::ast::{Decl, DeclKind, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl};
 
     use super::*;
 
@@ -526,27 +554,37 @@ mod tests {
         }
     }
 
-    fn return_stmt_decl(expr: Expr) -> Decl {
-        Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Return(expr),
-            }),
+    fn return_stmt(expr: Expr) -> Stmt {
+        Stmt {
+            kind: StmtKind::Return(expr),
         }
     }
 
-    fn print_stmt_decl(expr: Expr) -> Decl {
-        Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Print(expr),
-            }),
+    fn print_stmt(expr: Expr) -> Stmt {
+        Stmt {
+            kind: StmtKind::Print(expr),
         }
     }
 
-    fn block_stmt_decl(body: Vec<Decl>) -> Decl {
+    fn block_stmt(body: Vec<Decl>) -> Stmt {
+        Stmt {
+            kind: StmtKind::Block(Box::new(body)),
+        }
+    }
+
+    fn if_stmt(cond: Expr, then_branch: Stmt, else_branch: Stmt) -> Stmt {
+        Stmt {
+            kind: StmtKind::IfStmt(Box::new(IfStmt {
+                cond,
+                then_branch: Box::new(then_branch),
+                else_branch: Some(Box::new(else_branch)),
+            })),
+        }
+    }
+
+    fn decl_stmt(stmt: Stmt) -> Decl {
         Decl {
-            kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Block(Box::new(body)),
-            }),
+            kind: DeclKind::Stmt(stmt),
         }
     }
 
@@ -694,7 +732,7 @@ mod tests {
             &Decl {
                 kind: DeclKind::Stmt(Stmt {
                     kind: StmtKind::Block(Box::new(vec![
-                        print_stmt_decl(string_literal("hello world")),
+                        decl_stmt(print_stmt(string_literal("hello world"))),
                         var_decl("a".to_string(), int_type(), Some(literal(10))),
                     ]))
                 })
@@ -712,13 +750,47 @@ mod tests {
                     name: "foo".to_string(),
                     ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
                     param_names: Some(vec!["a".to_string(), "b".to_string()]),
-                    code: Box::new(block_stmt_decl(vec![return_stmt_decl(binary(
+                    code: Box::new(block_stmt(vec![decl_stmt(return_stmt(binary(
                         BinOp::Mul,
                         var_expr("a"),
                         var_expr("b")
-                    ))]))
+                    )))]))
                 })
             }
+        )
+    }
+
+    #[test]
+    fn test_if_else_decl() {
+        let decl = &Parser::new(
+            "
+            if is_true {
+                print \"true\";            
+            } else if is_false {
+                print \"false\";
+            } else if cookies {
+                print \"cookies\";
+            } else {
+                print \"unknown\";
+            }",
+        )
+        .parse()[0];
+
+        assert_eq!(
+            decl,
+            &decl_stmt(if_stmt(
+                var_expr("is_true"),
+                block_stmt(vec![decl_stmt(print_stmt(string_literal("true")))]),
+                if_stmt(
+                    var_expr("is_false"),
+                    block_stmt(vec![decl_stmt(print_stmt(string_literal("false")))]),
+                    if_stmt(
+                        var_expr("cookies"),
+                        block_stmt(vec![decl_stmt(print_stmt(string_literal("cookies")))]),
+                        block_stmt(vec![decl_stmt(print_stmt(string_literal("unknown")))])
+                    )
+                )
+            ))
         )
     }
 }

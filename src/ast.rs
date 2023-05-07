@@ -60,10 +60,10 @@ pub struct Expr {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct IfElse {
+pub struct IfStmt {
     pub cond: Expr,
-    pub then_branch: Box<Vec<Decl>>,
-    pub else_branch: Option<Box<Vec<Decl>>>,
+    pub then_branch: Box<Stmt>,
+    pub else_branch: Option<Box<Stmt>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -83,7 +83,7 @@ pub struct FunDecl {
     pub name: String,
     pub ty: Ty,
     pub param_names: Option<Vec<String>>,
-    pub code: Box<Decl>,
+    pub code: Box<Stmt>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -103,7 +103,7 @@ pub enum DeclKind {
 #[derive(Debug, Eq, PartialEq)]
 pub enum StmtKind {
     Expr(Expr),
-    IfElse(Box<IfElse>),
+    IfStmt(Box<IfStmt>),
     ForLoop(Box<ForLoop>),
     Print(Expr),
     Return(Expr),
