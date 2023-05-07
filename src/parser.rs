@@ -202,7 +202,7 @@ impl<'a> Parser<'a> {
         argtypes.push(Box::new(self.type_expr()));
         while self.current.ty == TokenType::Comma {
             self.advance();
-            self.type_expr();
+            argtypes.push(Box::new(self.type_expr()));
         }
         argtypes
     }
@@ -210,12 +210,18 @@ impl<'a> Parser<'a> {
     fn type_expr(&mut self) -> Ty {
         self.advance();
         match self.prev.ty {
-            // arr [10] int
-            TokenType::TyArray => {
-                self.consume(TokenType::LBracket, "");
+            // [10; int]
+            TokenType::LBracket => {
                 let length = self.expression();
-                self.consume(TokenType::RBracket, "");
+                self.consume(
+                    TokenType::Semicolon,
+                    "Expected a ';' after array length expression",
+                );
                 let ty = self.type_expr();
+                self.consume(
+                    TokenType::RBracket,
+                    "Missing closing ']' in array type declaration",
+                );
                 Ty {
                     kind: TyKind::Array {
                         len: length,
@@ -225,13 +231,13 @@ impl<'a> Parser<'a> {
             }
             // fn (int, char) -> string
             TokenType::Fun => {
-                self.consume(TokenType::LParen, "");
+                self.consume(TokenType::LParen, "Expected a '(' after 'fn' keyword");
                 let mut argtypes = None;
                 if self.current.ty != TokenType::RParen {
                     argtypes = Some(self.parse_argtypes());
                 }
-                self.consume(TokenType::RParen, "");
-                self.consume(TokenType::RArrow, "");
+                self.consume(TokenType::RParen, "Expected a ')' after argument type list");
+                self.consume(TokenType::RArrow, "Expecter a '->' after argument list");
                 let ret_ty = self.type_expr();
                 Ty {
                     kind: TyKind::Function {
@@ -249,17 +255,26 @@ impl<'a> Parser<'a> {
                 kind: TyKind::String,
             },
             TokenType::TyVoid => Ty { kind: TyKind::Void },
-            _ => panic!(),
+            t => panic!("Token {:?} does not name a type", t),
         }
     }
 
     /// var ident: ty (= expr)?;
     fn var_decl(&mut self) -> Decl {
-        self.consume(TokenType::Var, "");
-        self.consume(TokenType::Identifier, "");
+        self.consume(
+            TokenType::Var,
+            "Variable declaration has to begin with 'var' keyword",
+        );
+        self.consume(
+            TokenType::Identifier,
+            "Missing identifier after 'var' keyword",
+        );
         let name = &self.prev;
         let name = &self.src[name.start..name.start + name.length];
-        self.consume(TokenType::Colon, "");
+        self.consume(
+            TokenType::Colon,
+            "Expected a colon after an identifier in a variable declaration.",
+        );
 
         let ty = self.type_expr();
 
@@ -268,7 +283,10 @@ impl<'a> Parser<'a> {
             self.advance();
             val = Some(self.expression());
         }
-        self.consume(TokenType::Semicolon, "");
+        self.consume(
+            TokenType::Semicolon,
+            "Missing semicolon after variable declaration.",
+        );
 
         Decl {
             kind: DeclKind::VarDecl(VarDecl {
@@ -282,7 +300,7 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
-            _ => panic!(),
+            t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
 
@@ -327,6 +345,46 @@ mod tests {
     fn unary(op: UnOp, val: Expr) -> Expr {
         Expr {
             kind: ExprKind::Unary(op, Box::new(val)),
+        }
+    }
+
+    fn var_decl(name: String, ty: Ty, val: Option<Expr>) -> Decl {
+        Decl {
+            kind: DeclKind::VarDecl(VarDecl { name, ty, val }),
+        }
+    }
+
+    fn function_type(ret_type: Ty, args: Option<Vec<Box<Ty>>>) -> Ty {
+        Ty {
+            kind: TyKind::Function {
+                ret_type: Box::new(ret_type),
+                args,
+            },
+        }
+    }
+
+    fn array_type(len: Expr, ty: Ty) -> Ty {
+        Ty {
+            kind: TyKind::Array {
+                len,
+                ty: Box::new(ty),
+            },
+        }
+    }
+
+    fn string_type() -> Ty {
+        Ty {
+            kind: TyKind::String,
+        }
+    }
+
+    fn char_type() -> Ty {
+        Ty { kind: TyKind::Char }
+    }
+
+    fn int_type() -> Ty {
+        Ty {
+            kind: TyKind::Int64,
         }
     }
 
@@ -424,6 +482,35 @@ mod tests {
                     val: None
                 })
             }
+        )
+    }
+
+    #[test]
+    fn test_var_decl_array_type() {
+        let decl = &Parser::new("var name: [10; char];").parse()[0];
+        assert_eq!(
+            decl,
+            &var_decl(
+                "name".to_string(),
+                array_type(literal(10), char_type()),
+                None
+            )
+        )
+    }
+
+    #[test]
+    fn test_var_decl_fun_type() {
+        let decl = &Parser::new("var lambda: fn(char, int) -> string;").parse()[0];
+        assert_eq!(
+            decl,
+            &var_decl(
+                "lambda".to_string(),
+                function_type(
+                    string_type(),
+                    Some(vec![Box::new(char_type()), Box::new(int_type())]),
+                ),
+                None
+            )
         )
     }
 }
