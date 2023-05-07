@@ -1,4 +1,6 @@
-use crate::ast::{BinOp, Decl, DeclKind, Expr, ExprKind, Ty, TyKind, UnOp, VarDecl};
+use crate::ast::{
+    BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, Stmt, StmtKind, Ty, TyKind, UnOp, VarDecl,
+};
 use crate::scanner::{Scanner, Token, TokenType};
 
 pub struct Parser<'a> {
@@ -118,6 +120,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn variable(&mut self) -> Expr {
+        let ident = self.src[self.prev.start..self.prev.start + self.prev.length].to_string();
+        Expr {
+            kind: ExprKind::Var(ident),
+        }
+    }
+
     fn binary(&mut self, lhs: Expr) -> Expr {
         let op = self.prev.ty;
         let op = self.get_bin_op(op).unwrap();
@@ -161,6 +170,7 @@ impl<'a> Parser<'a> {
             TokenType::LParen => Self::grouping,
             TokenType::Minus => Self::unary,
             TokenType::False | TokenType::True => Self::bool_literal,
+            TokenType::Identifier => Self::variable,
             t => panic!("Expression can't begin with {:?}", t),
         }
     }
@@ -196,13 +206,13 @@ impl<'a> Parser<'a> {
     }
 
     /// arg (, arg)*
-    fn parse_argtypes(&mut self) -> Vec<Box<Ty>> {
+    fn parse_argtypes(&mut self) -> Vec<Ty> {
         // parse type list
         let mut argtypes = Vec::new();
-        argtypes.push(Box::new(self.type_expr()));
+        argtypes.push(self.type_expr());
         while self.current.ty == TokenType::Comma {
             self.advance();
-            argtypes.push(Box::new(self.type_expr()));
+            argtypes.push(self.type_expr());
         }
         argtypes
     }
@@ -242,7 +252,10 @@ impl<'a> Parser<'a> {
                 Ty {
                     kind: TyKind::Function {
                         ret_type: Box::new(ret_ty),
-                        args: argtypes,
+                        args: match argtypes {
+                            None => None,
+                            Some(argt) => Some(Box::new(argt)),
+                        },
                     },
                 }
             }
@@ -297,9 +310,93 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn string_from_src(&self, start: usize, len: usize) -> String {
+        self.src[start..start + len].to_string()
+    }
+
+    // ident: ty (, ident: ty)*
+    fn parse_args(&mut self) -> (Vec<Ty>, Vec<String>) {
+        let mut names = Vec::new();
+        let mut types = Vec::new();
+        self.consume(TokenType::Identifier, "");
+        names.push(self.string_from_src(self.prev.start, self.prev.length));
+        self.consume(TokenType::Colon, "");
+        types.push(self.type_expr());
+
+        while self.current.ty == TokenType::Comma {
+            self.advance();
+            self.consume(TokenType::Identifier, "");
+            names.push(self.string_from_src(self.prev.start, self.prev.length));
+            self.consume(TokenType::Colon, "");
+            types.push(self.type_expr());
+        }
+
+        (types, names)
+    }
+
+    /// fn ident (args?) -> ty;
+    fn fun_decl(&mut self) -> Decl {
+        self.consume(
+            TokenType::Fun,
+            "Function declaration has to begin with 'fn' keyword.",
+        );
+        self.consume(
+            TokenType::Identifier,
+            "Expected a function name after the 'fn' keyword.",
+        );
+        let name = self.string_from_src(self.prev.start, self.prev.length);
+
+        self.consume(TokenType::LParen, "Expected a '(' after 'fn' keyword");
+        let (mut types, mut names) = (None, None);
+        if self.current.ty != TokenType::RParen {
+            let (t, n) = self.parse_args();
+            (types, names) = (Some(Box::new(t)), Some(n));
+        }
+
+        self.consume(TokenType::RParen, "Expected a ')' after parameter list.");
+        self.consume(TokenType::RArrow, "Expected a '->' after ')'.");
+
+        let ty = self.type_expr();
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expected a ';' after a function declaration.",
+        );
+
+        Decl {
+            kind: DeclKind::FunDecl(FunDecl {
+                name,
+                ty: Ty {
+                    kind: TyKind::Function {
+                        ret_type: Box::new(ty),
+                        args: types,
+                    },
+                },
+                param_names: names,
+                code: None,
+            }),
+        }
+    }
+
+    fn block(&mut self) -> Decl {
+        self.consume(TokenType::LBrace, "Block statement has to begin with a '{'");
+        let mut decls = Vec::new();
+        while self.current.ty != TokenType::RBrace {
+            decls.push(self.declaration());
+        }
+
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Block(Box::new(decls)),
+            }),
+        }
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
+            TokenType::Fun => self.fun_decl(),
+            TokenType::LBrace => self.block(),
             t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
@@ -311,7 +408,6 @@ impl<'a> Parser<'a> {
         while self.current.ty != TokenType::Eof {
             program.push(self.declaration());
         }
-
         program
     }
 
@@ -333,6 +429,12 @@ mod tests {
     fn literal(val: i64) -> Expr {
         Expr {
             kind: ExprKind::IntegerLit(val),
+        }
+    }
+
+    fn string_literal(val: &'static str) -> Expr {
+        Expr {
+            kind: ExprKind::StringLit(val.to_string()),
         }
     }
 
@@ -360,7 +462,7 @@ mod tests {
         }
     }
 
-    fn function_type(ret_type: Ty, args: Option<Vec<Box<Ty>>>) -> Ty {
+    fn function_type(ret_type: Ty, args: Option<Box<Vec<Ty>>>) -> Ty {
         Ty {
             kind: TyKind::Function {
                 ret_type: Box::new(ret_type),
@@ -391,6 +493,22 @@ mod tests {
     fn int_type() -> Ty {
         Ty {
             kind: TyKind::Int64,
+        }
+    }
+
+    fn return_stmt_decl(expr: Expr) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Return(expr),
+            }),
+        }
+    }
+
+    fn print_stmt_decl(expr: Expr) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Print(expr),
+            }),
         }
     }
 
@@ -517,12 +635,48 @@ mod tests {
             decl,
             &var_decl(
                 "lambda".to_string(),
-                function_type(
-                    string_type(),
-                    Some(vec![Box::new(char_type()), Box::new(int_type())]),
-                ),
+                function_type(string_type(), Some(Box::new(vec![char_type(), int_type()]))),
                 None
             )
+        )
+    }
+
+    #[test]
+    fn test_block_stmt() {
+        let decl = &Parser::new(
+            "{
+                print \"hello world\";
+                var a: int = 10;
+            }",
+        )
+        .parse()[0];
+
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::Stmt(Stmt {
+                    kind: StmtKind::Block(Box::new(vec![
+                        print_stmt_decl(string_literal("hello world")),
+                        var_decl("a".to_string(), int_type(), Some(literal(10))),
+                    ]))
+                })
+            }
+        )
+    }
+
+    #[test]
+    fn test_fun_decl_no_body() {
+        let decl = &Parser::new("fn foo(a: int, b: int) -> int;").parse()[0];
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::FunDecl(FunDecl {
+                    name: "foo".to_string(),
+                    ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
+                    param_names: Some(vec!["a".to_string(), "b".to_string()]),
+                    code: None
+                })
+            }
         )
     }
 
@@ -534,19 +688,13 @@ mod tests {
             &Decl {
                 kind: DeclKind::FunDecl(FunDecl {
                     name: "foo".to_string(),
-                    ty: function_type(
-                        int_type(),
-                        Some(vec![Box::new(int_type()), Box::new(int_type())])
-                    ),
-                    code: vec![Box::new(Decl {
-                        kind: DeclKind::Stmt(Stmt {
-                            kind: StmtKind::Return(binary(
-                                BinOp::Mul,
-                                var_expr("a"),
-                                var_expr("b")
-                            ))
-                        })
-                    })]
+                    ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
+                    param_names: Some(vec!["a".to_string(), "b".to_string()]),
+                    code: Some(Box::new(vec![return_stmt_decl(binary(
+                        BinOp::Mul,
+                        var_expr("a"),
+                        var_expr("b")
+                    ))]))
                 })
             }
         )
