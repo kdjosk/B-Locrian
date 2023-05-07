@@ -16,7 +16,7 @@ pub enum TyKind {
     Void,
     Function {
         ret_type: Box<Ty>,
-        args: Option<Vec<Box<Ty>>>,
+        args: Option<Box<Vec<Ty>>>,
     },
 }
 
@@ -60,15 +60,10 @@ pub struct Expr {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Block {
-    pub body: Vec<Box<Decl>>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
 pub struct IfElse {
     pub cond: Expr,
-    pub then_branch: Box<Block>,
-    pub else_branch: Option<Box<Block>>,
+    pub then_branch: Box<Vec<Decl>>,
+    pub else_branch: Option<Box<Vec<Decl>>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -87,7 +82,8 @@ pub struct Decl {
 pub struct FunDecl {
     pub name: String,
     pub ty: Ty,
-    pub code: Vec<Box<Decl>>,
+    pub param_names: Option<Vec<String>>,
+    pub code: Box<Decl>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -99,9 +95,9 @@ pub struct VarDecl {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DeclKind {
-    FunDecl(Box<FunDecl>),
+    FunDecl(FunDecl),
     VarDecl(VarDecl),
-    Stmt(Box<Stmt>),
+    Stmt(Stmt),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -111,7 +107,7 @@ pub enum StmtKind {
     ForLoop(Box<ForLoop>),
     Print(Expr),
     Return(Expr),
-    Block(Box<Block>),
+    Block(Box<Vec<Decl>>),
 }
 
 #[derive(Debug, Eq, PartialEq)]

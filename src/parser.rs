@@ -1,4 +1,6 @@
-use crate::ast::{BinOp, Decl, DeclKind, Expr, ExprKind, Ty, TyKind, UnOp, VarDecl};
+use crate::ast::{
+    BinOp, Decl, DeclKind, Expr, ExprKind, FunDecl, Stmt, StmtKind, Ty, TyKind, UnOp, VarDecl,
+};
 use crate::scanner::{Scanner, Token, TokenType};
 
 pub struct Parser<'a> {
@@ -118,6 +120,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn variable(&mut self) -> Expr {
+        let ident = self.src[self.prev.start..self.prev.start + self.prev.length].to_string();
+        Expr {
+            kind: ExprKind::Var(ident),
+        }
+    }
+
     fn binary(&mut self, lhs: Expr) -> Expr {
         let op = self.prev.ty;
         let op = self.get_bin_op(op).unwrap();
@@ -161,6 +170,7 @@ impl<'a> Parser<'a> {
             TokenType::LParen => Self::grouping,
             TokenType::Minus => Self::unary,
             TokenType::False | TokenType::True => Self::bool_literal,
+            TokenType::Identifier => Self::variable,
             t => panic!("Expression can't begin with {:?}", t),
         }
     }
@@ -196,13 +206,13 @@ impl<'a> Parser<'a> {
     }
 
     /// arg (, arg)*
-    fn parse_argtypes(&mut self) -> Vec<Box<Ty>> {
+    fn parse_argtypes(&mut self) -> Vec<Ty> {
         // parse type list
         let mut argtypes = Vec::new();
-        argtypes.push(Box::new(self.type_expr()));
+        argtypes.push(self.type_expr());
         while self.current.ty == TokenType::Comma {
             self.advance();
-            self.type_expr();
+            argtypes.push(self.type_expr());
         }
         argtypes
     }
@@ -210,12 +220,18 @@ impl<'a> Parser<'a> {
     fn type_expr(&mut self) -> Ty {
         self.advance();
         match self.prev.ty {
-            // arr [10] int
-            TokenType::TyArray => {
-                self.consume(TokenType::LBracket, "");
+            // [10; int]
+            TokenType::LBracket => {
                 let length = self.expression();
-                self.consume(TokenType::RBracket, "");
+                self.consume(
+                    TokenType::Semicolon,
+                    "Expected a ';' after array length expression",
+                );
                 let ty = self.type_expr();
+                self.consume(
+                    TokenType::RBracket,
+                    "Missing closing ']' in array type declaration",
+                );
                 Ty {
                     kind: TyKind::Array {
                         len: length,
@@ -225,18 +241,21 @@ impl<'a> Parser<'a> {
             }
             // fn (int, char) -> string
             TokenType::Fun => {
-                self.consume(TokenType::LParen, "");
+                self.consume(TokenType::LParen, "Expected a '(' after 'fn' keyword");
                 let mut argtypes = None;
                 if self.current.ty != TokenType::RParen {
                     argtypes = Some(self.parse_argtypes());
                 }
-                self.consume(TokenType::RParen, "");
-                self.consume(TokenType::RArrow, "");
+                self.consume(TokenType::RParen, "Expected a ')' after argument type list");
+                self.consume(TokenType::RArrow, "Expecter a '->' after argument list");
                 let ret_ty = self.type_expr();
                 Ty {
                     kind: TyKind::Function {
                         ret_type: Box::new(ret_ty),
-                        args: argtypes,
+                        args: match argtypes {
+                            None => None,
+                            Some(argt) => Some(Box::new(argt)),
+                        },
                     },
                 }
             }
@@ -249,17 +268,26 @@ impl<'a> Parser<'a> {
                 kind: TyKind::String,
             },
             TokenType::TyVoid => Ty { kind: TyKind::Void },
-            _ => panic!(),
+            t => panic!("Token {:?} does not name a type", t),
         }
     }
 
     /// var ident: ty (= expr)?;
     fn var_decl(&mut self) -> Decl {
-        self.consume(TokenType::Var, "");
-        self.consume(TokenType::Identifier, "");
+        self.consume(
+            TokenType::Var,
+            "Variable declaration has to begin with 'var' keyword",
+        );
+        self.consume(
+            TokenType::Identifier,
+            "Missing identifier after 'var' keyword",
+        );
         let name = &self.prev;
         let name = &self.src[name.start..name.start + name.length];
-        self.consume(TokenType::Colon, "");
+        self.consume(
+            TokenType::Colon,
+            "Expected a colon after an identifier in a variable declaration.",
+        );
 
         let ty = self.type_expr();
 
@@ -268,7 +296,10 @@ impl<'a> Parser<'a> {
             self.advance();
             val = Some(self.expression());
         }
-        self.consume(TokenType::Semicolon, "");
+        self.consume(
+            TokenType::Semicolon,
+            "Missing semicolon after variable declaration.",
+        );
 
         Decl {
             kind: DeclKind::VarDecl(VarDecl {
@@ -279,10 +310,124 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn string_from_src(&self, start: usize, len: usize) -> String {
+        self.src[start..start + len].to_string()
+    }
+
+    // ident: ty (, ident: ty)*
+    fn parse_args(&mut self) -> (Vec<Ty>, Vec<String>) {
+        let mut names = Vec::new();
+        let mut types = Vec::new();
+        self.consume(TokenType::Identifier, "");
+        names.push(self.string_from_src(self.prev.start, self.prev.length));
+        self.consume(TokenType::Colon, "");
+        types.push(self.type_expr());
+
+        while self.current.ty == TokenType::Comma {
+            self.advance();
+            self.consume(TokenType::Identifier, "");
+            names.push(self.string_from_src(self.prev.start, self.prev.length));
+            self.consume(TokenType::Colon, "");
+            types.push(self.type_expr());
+        }
+
+        (types, names)
+    }
+
+    /// fn ident (args?) -> ty;
+    fn fun_decl(&mut self) -> Decl {
+        self.consume(
+            TokenType::Fun,
+            "Function declaration has to begin with 'fn' keyword.",
+        );
+        self.consume(
+            TokenType::Identifier,
+            "Expected a function name after the 'fn' keyword.",
+        );
+        let name = self.string_from_src(self.prev.start, self.prev.length);
+
+        self.consume(TokenType::LParen, "Expected a '(' after 'fn' keyword");
+        let (mut types, mut names) = (None, None);
+        if self.current.ty != TokenType::RParen {
+            let (t, n) = self.parse_args();
+            (types, names) = (Some(Box::new(t)), Some(n));
+        }
+
+        self.consume(TokenType::RParen, "Expected a ')' after parameter list.");
+        self.consume(TokenType::RArrow, "Expected a '->' after ')'.");
+
+        let ty = self.type_expr();
+
+        let body = self.block();
+
+        Decl {
+            kind: DeclKind::FunDecl(FunDecl {
+                name,
+                ty: Ty {
+                    kind: TyKind::Function {
+                        ret_type: Box::new(ty),
+                        args: types,
+                    },
+                },
+                param_names: names,
+                code: Box::new(body),
+            }),
+        }
+    }
+
+    fn block(&mut self) -> Decl {
+        self.consume(TokenType::LBrace, "Block statement has to begin with a '{'");
+        let mut decls = Vec::new();
+
+        while self.current.ty != TokenType::RBrace {
+            decls.push(self.declaration());
+        }
+
+        self.consume(TokenType::RBrace, "Missing '}' after a block statement.");
+
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Block(Box::new(decls)),
+            }),
+        }
+    }
+
+    fn print_stmt(&mut self) -> Decl {
+        self.consume(TokenType::Print, "");
+        let expr = self.expression();
+        self.consume(
+            TokenType::Semicolon,
+            "Expected a ';' after a print statement",
+        );
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Print(expr),
+            }),
+        }
+    }
+
+    fn return_stmt(&mut self) -> Decl {
+        self.consume(TokenType::Return, "");
+        let expr = self.expression();
+        self.consume(
+            TokenType::Semicolon,
+            "Expected a ';' after a return statement",
+        );
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Return(expr),
+            }),
+        }
+    }
+
     fn declaration(&mut self) -> Decl {
         match self.current.ty {
             TokenType::Var => self.var_decl(),
-            _ => panic!(),
+            TokenType::Fun => self.fun_decl(),
+            TokenType::LBrace => self.block(),
+            TokenType::Print => self.print_stmt(),
+            TokenType::Return => self.return_stmt(),
+            t => panic!("Declaration can't begin with token {:?}", t),
         }
     }
 
@@ -293,7 +438,6 @@ impl<'a> Parser<'a> {
         while self.current.ty != TokenType::Eof {
             program.push(self.declaration());
         }
-
         program
     }
 
@@ -308,13 +452,19 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Decl, DeclKind, Ty, TyKind, VarDecl};
+    use crate::ast::{Decl, DeclKind, FunDecl, Stmt, StmtKind, Ty, TyKind, VarDecl};
 
     use super::*;
 
     fn literal(val: i64) -> Expr {
         Expr {
             kind: ExprKind::IntegerLit(val),
+        }
+    }
+
+    fn string_literal(val: &'static str) -> Expr {
+        Expr {
+            kind: ExprKind::StringLit(val.to_string()),
         }
     }
 
@@ -327,6 +477,76 @@ mod tests {
     fn unary(op: UnOp, val: Expr) -> Expr {
         Expr {
             kind: ExprKind::Unary(op, Box::new(val)),
+        }
+    }
+
+    fn var_expr(name: &'static str) -> Expr {
+        Expr {
+            kind: ExprKind::Var(name.to_string()),
+        }
+    }
+
+    fn var_decl(name: String, ty: Ty, val: Option<Expr>) -> Decl {
+        Decl {
+            kind: DeclKind::VarDecl(VarDecl { name, ty, val }),
+        }
+    }
+
+    fn function_type(ret_type: Ty, args: Option<Box<Vec<Ty>>>) -> Ty {
+        Ty {
+            kind: TyKind::Function {
+                ret_type: Box::new(ret_type),
+                args,
+            },
+        }
+    }
+
+    fn array_type(len: Expr, ty: Ty) -> Ty {
+        Ty {
+            kind: TyKind::Array {
+                len,
+                ty: Box::new(ty),
+            },
+        }
+    }
+
+    fn string_type() -> Ty {
+        Ty {
+            kind: TyKind::String,
+        }
+    }
+
+    fn char_type() -> Ty {
+        Ty { kind: TyKind::Char }
+    }
+
+    fn int_type() -> Ty {
+        Ty {
+            kind: TyKind::Int64,
+        }
+    }
+
+    fn return_stmt_decl(expr: Expr) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Return(expr),
+            }),
+        }
+    }
+
+    fn print_stmt_decl(expr: Expr) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Print(expr),
+            }),
+        }
+    }
+
+    fn block_stmt_decl(body: Vec<Decl>) -> Decl {
+        Decl {
+            kind: DeclKind::Stmt(Stmt {
+                kind: StmtKind::Block(Box::new(body)),
+            }),
         }
     }
 
@@ -394,6 +614,12 @@ mod tests {
     }
 
     #[test]
+    fn test_var_expr() {
+        let expr = Parser::new("a").parse_expression();
+        assert_eq!(expr, var_expr("a"));
+    }
+
+    #[test]
     fn test_var_decl_with_init() {
         let decl = &Parser::new("var ident: int = 10;").parse()[0];
         assert_eq!(
@@ -422,6 +648,75 @@ mod tests {
                         kind: TyKind::Int64
                     },
                     val: None
+                })
+            }
+        )
+    }
+
+    #[test]
+    fn test_var_decl_array_type() {
+        let decl = &Parser::new("var name: [10; char];").parse()[0];
+        assert_eq!(
+            decl,
+            &var_decl(
+                "name".to_string(),
+                array_type(literal(10), char_type()),
+                None
+            )
+        )
+    }
+
+    #[test]
+    fn test_var_decl_fun_type() {
+        let decl = &Parser::new("var lambda: fn(char, int) -> string;").parse()[0];
+        assert_eq!(
+            decl,
+            &var_decl(
+                "lambda".to_string(),
+                function_type(string_type(), Some(Box::new(vec![char_type(), int_type()]))),
+                None
+            )
+        )
+    }
+
+    #[test]
+    fn test_block_stmt() {
+        let decl = &Parser::new(
+            "{
+                print \"hello world\";
+                var a: int = 10;
+            }",
+        )
+        .parse()[0];
+
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::Stmt(Stmt {
+                    kind: StmtKind::Block(Box::new(vec![
+                        print_stmt_decl(string_literal("hello world")),
+                        var_decl("a".to_string(), int_type(), Some(literal(10))),
+                    ]))
+                })
+            }
+        )
+    }
+
+    #[test]
+    fn test_fun_decl() {
+        let decl = &Parser::new("fn foo(a: int, b: int) -> int { return a * b;}").parse()[0];
+        assert_eq!(
+            decl,
+            &Decl {
+                kind: DeclKind::FunDecl(FunDecl {
+                    name: "foo".to_string(),
+                    ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
+                    param_names: Some(vec!["a".to_string(), "b".to_string()]),
+                    code: Box::new(block_stmt_decl(vec![return_stmt_decl(binary(
+                        BinOp::Mul,
+                        var_expr("a"),
+                        var_expr("b")
+                    ))]))
                 })
             }
         )
