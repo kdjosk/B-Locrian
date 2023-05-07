@@ -245,12 +245,12 @@ impl<'a> Parser<'a> {
         match self.prev.ty {
             // [10; int]
             TokenType::LBracket => {
-                let length = self.expression();
+                let ty = self.type_expr();
                 self.consume(
                     TokenType::Semicolon,
-                    "Expected a ';' after array length expression",
+                    "Expected a ';' after array type expression",
                 );
-                let ty = self.type_expr();
+                let length = self.expression();
                 self.consume(
                     TokenType::RBracket,
                     "Missing closing ']' in array type declaration",
@@ -875,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_var_decl_array_type() {
-        let decl = &Parser::new("var name: [10; char];").parse()[0];
+        let decl = &Parser::new("var name: [char; 10];").parse()[0];
         assert_eq!(
             decl,
             &var_decl(
