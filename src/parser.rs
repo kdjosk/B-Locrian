@@ -381,9 +381,12 @@ impl<'a> Parser<'a> {
     fn block(&mut self) -> Decl {
         self.consume(TokenType::LBrace, "Block statement has to begin with a '{'");
         let mut decls = Vec::new();
+
         while self.current.ty != TokenType::RBrace {
             decls.push(self.declaration());
         }
+
+        self.consume(TokenType::RBrace, "Missing '}' after a block statement.");
 
         Decl {
             kind: DeclKind::Stmt(Stmt {
@@ -394,9 +397,14 @@ impl<'a> Parser<'a> {
 
     fn print_stmt(&mut self) -> Decl {
         self.consume(TokenType::Print, "");
+        let expr = self.expression();
+        self.consume(
+            TokenType::Semicolon,
+            "Expected a ';' after a print statement",
+        );
         Decl {
             kind: DeclKind::Stmt(Stmt {
-                kind: StmtKind::Print(self.expression()),
+                kind: StmtKind::Print(expr),
             }),
         }
     }
