@@ -57,7 +57,7 @@ pub enum ExprKind {
     IntegerLit(i64),
     StringLit(String),
     BoolLit(bool),
-    Call(String, Vec<Arg>),
+    Call(Box<Expr>, Vec<Expr>),
     Subscript(Box<Expr>, Box<Expr>),
 }
 
