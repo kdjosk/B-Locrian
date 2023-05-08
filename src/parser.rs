@@ -15,7 +15,9 @@ pub struct Parser<'a> {
 
 enum Precedence {
     None = -100,
-    Assignment = 7,
+    Assignment = 5,
+    LogicOr = 6,
+    LogicAnd = 7,
     Equality = 8,
     Comparison = 9,
     Term = 10,
@@ -147,7 +149,7 @@ impl<'a> Parser<'a> {
         let op = self.prev.ty;
         let op = match op {
             TokenType::Minus => UnOp::Neg,
-            TokenType::Bang => UnOp::Not,
+            TokenType::Not => UnOp::Not,
             _ => panic!(),
         };
         let expr = self.parse_precedence(Precedence::Unary as i32);
@@ -228,6 +230,8 @@ impl<'a> Parser<'a> {
             TokenType::GreaterEqual => BinOp::GreaterOrEqual,
             TokenType::EqualEqual => BinOp::Equal,
             TokenType::BangEqual => BinOp::NotEqual,
+            TokenType::And => BinOp::LogicAnd,
+            TokenType::Or => BinOp::LogicOr,
             TokenType::Equal => BinOp::Assign,
             _ => unreachable!(),
         }
@@ -235,6 +239,7 @@ impl<'a> Parser<'a> {
 
     fn precedence(&self, token_ty: TokenType) -> Precedence {
         match token_ty {
+            TokenType::LParen | TokenType::LBracket => Precedence::Call,
             TokenType::Plus | TokenType::Minus => Precedence::Term,
             TokenType::Star | TokenType::Slash => Precedence::Factor,
             TokenType::Greater 
@@ -242,8 +247,9 @@ impl<'a> Parser<'a> {
             | TokenType::Less 
             | TokenType::LessEqual => Precedence::Comparison,
             TokenType::EqualEqual | TokenType::BangEqual => Precedence::Equality,
+            TokenType::And => Precedence::LogicAnd,
+            TokenType::Or => Precedence::LogicOr,
             TokenType::Equal => Precedence::Assignment,
-            TokenType::LParen | TokenType::LBracket => Precedence::Call,
             _ => Precedence::None,
         }
     }
@@ -253,7 +259,7 @@ impl<'a> Parser<'a> {
             TokenType::NumberLit => Self::number,
             TokenType::StringLit => Self::string,
             TokenType::LParen => Self::grouping,
-            TokenType::Minus => Self::unary,
+            TokenType::Minus | TokenType::Not => Self::unary,
             TokenType::False | TokenType::True => Self::bool_literal,
             TokenType::Identifier => Self::variable,
             t => panic!("Expression can't begin with {:?}", t),
@@ -276,8 +282,10 @@ impl<'a> Parser<'a> {
             | TokenType::LessEqual
             | TokenType::Greater
             | TokenType::GreaterEqual 
-            | TokenType::Equal => Self::binary,
-            _ => panic!(),
+            | TokenType::Equal
+            | TokenType::And
+            | TokenType::Or => Self::binary,
+            _ => unreachable!(),
         }
     }
 
@@ -681,6 +689,12 @@ mod tests {
         }
     }
 
+    fn bool_literal(val: bool) -> Expr {
+        Expr {
+            kind: ExprKind::BoolLit(val)
+        }
+    }
+
     fn string_literal(val: &'static str) -> Expr {
         Expr {
             kind: ExprKind::StringLit(val.to_string()),
@@ -868,6 +882,26 @@ mod tests {
     }
 
     #[test]
+    fn test_logic_and() {
+        assert_expr("true and false", binary(BinOp::LogicAnd, bool_literal(true), bool_literal(false)))
+    }
+
+    #[test]
+    fn test_logic_or() {
+        assert_expr("true or false", binary(BinOp::LogicOr, bool_literal(true), bool_literal(false)))
+    }
+
+    #[test]
+    fn test_unary_not() {
+        assert_expr("not true", unary(UnOp::Not, bool_literal(true)))
+    }
+
+    #[test]
+    fn test_unary_neg() {
+        assert_expr("-2", unary(UnOp::Neg, literal(2)))
+    }
+
+    #[test]
     fn test_grouping() {
         assert_expr(
             "(2 + 3) * 4",
@@ -887,24 +921,36 @@ mod tests {
     #[test]
     fn test_raising_precedence() {
         assert_expr(
-            "4 == 5 < 2 + 3 * -f(2)",
+            "a = true or true and 4 == 5 < 2 + 3 * -f(2)",
             binary(
-                BinOp::Equal,
-                literal(4),
+                BinOp::Assign,
+                var_expr("a"),
                 binary(
-                    BinOp::Less,
-                    literal(5),
+                    BinOp::LogicOr, 
+                    bool_literal(true), 
                     binary(
-                        BinOp::Add,
-                        literal(2),
+                        BinOp::LogicAnd,
+                        bool_literal(true),
                         binary(
-                            BinOp::Mul,
-                            literal(3), 
-                            unary(
-                                UnOp::Neg,
-                                call_expr(
-                                    var_expr("f"),
-                                    vec![literal(2)]
+                            BinOp::Equal,
+                            literal(4),
+                            binary(
+                                BinOp::Less,
+                                literal(5),
+                                binary(
+                                    BinOp::Add,
+                                    literal(2),
+                                    binary(
+                                        BinOp::Mul,
+                                        literal(3), 
+                                        unary(
+                                            UnOp::Neg,
+                                            call_expr(
+                                                var_expr("f"),
+                                                vec![literal(2)]
+                                            )
+                                        )
+                                    )
                                 )
                             )
                         )
@@ -917,26 +963,34 @@ mod tests {
     #[test]
     fn test_descending_precedence() {
         assert_expr(
-            "-f(2) * 3 + 2 > 5 == 4",
+            "-f(2) * 3 + 2 > 5 == 4 and true or true",
             binary(
-                BinOp::Equal,
+                BinOp::LogicOr,
                 binary(
-                    BinOp::Greater,
+                    BinOp::LogicAnd,
                     binary(
-                        BinOp::Add,
+                        BinOp::Equal,
                         binary(
-                            BinOp::Mul,
-                            unary(
-                                UnOp::Neg,
-                                call_expr(var_expr("f"), vec![literal(2)]),
+                            BinOp::Greater,
+                            binary(
+                                BinOp::Add,
+                                binary(
+                                    BinOp::Mul,
+                                    unary(
+                                        UnOp::Neg,
+                                        call_expr(var_expr("f"), vec![literal(2)]),
+                                    ),
+                                    literal(3)
+                                ),
+                                literal(2),
                             ),
-                            literal(3)
+                            literal(5),
                         ),
-                        literal(2),
+                        literal(4),
                     ),
-                    literal(5),
+                    bool_literal(true)
                 ),
-                literal(4),
+                bool_literal(true)
             )
         )
     }
