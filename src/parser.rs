@@ -169,7 +169,6 @@ impl<'a> Parser<'a> {
 
     /// expr [expr]
     fn subscript(&mut self, lhs: Expr) -> Expr {
-        self.advance();  // go through '['
         let idx = self.expression();
         self.consume(TokenType::RBracket, "Expected a closing ']' in subscript expression");
         Expr {
@@ -204,7 +203,7 @@ impl<'a> Parser<'a> {
             | TokenType::LessEqual => Precedence::Comparison,
             TokenType::EqualEqual | TokenType::BangEqual => Precedence::Equality,
             TokenType::Equal => Precedence::Assignment,
-            TokenType::LParen => Precedence::Call,
+            TokenType::LParen | TokenType::LBracket => Precedence::Call,
             _ => Precedence::None,
         }
     }
@@ -226,6 +225,7 @@ impl<'a> Parser<'a> {
     fn get_infix_rule(&self, token_ty: TokenType) -> fn(&mut Self, Expr) -> Expr {
         match token_ty {
             TokenType::LParen => Self::call,
+            TokenType::LBracket => Self::subscript,
             TokenType::Plus
             | TokenType::Minus
             | TokenType::Slash
@@ -604,7 +604,7 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::ast::{
-        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl, WhileLoop, Arg,
+        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl, WhileLoop,
     };
 
     use super::*;
