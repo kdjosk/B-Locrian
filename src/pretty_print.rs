@@ -186,6 +186,8 @@ impl<'a> AstPrinter<'a> {
             BinOp::Equal => print!("=="),
             BinOp::NotEqual => print!("!="),
             BinOp::Assign => print!("="),
+            BinOp::LogicAnd => print!("and"),
+            BinOp::LogicOr => print!("or"),
         }
     }
 

@@ -119,7 +119,7 @@ impl<'a> Scanner<'a> {
     }
 
     /*and, array, bool, char, else, false, for, fn, if,
-     int, or, print, return, string, true, void, while,
+     int, not, or, print, return, string, true, void, while,
     */
 
     fn identifier_type(&self) -> TokenType {
@@ -162,6 +162,7 @@ impl<'a> Scanner<'a> {
                     TokenType::Identifier
                 }
             }
+            'n' => self.check_keyword("ot", chars, TokenType::Not),
             'o' => self.check_keyword("r", chars, TokenType::Or),
             'p' => self.check_keyword("rint", chars, TokenType::Print),
             'r' => self.check_keyword("eturn", chars, TokenType::Return),
@@ -326,6 +327,7 @@ pub enum TokenType {
     Less,
     LessEqual,
     Minus,
+    Not,
     NumberLit,
     Or,
     Plus,
@@ -488,6 +490,12 @@ mod tests {
     fn test_int() {
         let mut scanner = Scanner::new("int");
         assert_eq!(scanner.scan_token().unwrap().ty, TokenType::TyInt);
+    }
+
+    #[test]
+    fn test_not() {
+        let mut scanner = Scanner::new("not");
+        assert_eq!(scanner.scan_token().unwrap().ty, TokenType::Not);
     }
 
     #[test]

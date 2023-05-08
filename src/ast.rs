@@ -32,6 +32,8 @@ pub enum BinOp {
     LessOrEqual,
     Equal,
     NotEqual,
+    LogicAnd,
+    LogicOr,
     Assign,
 }
 
