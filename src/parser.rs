@@ -10,6 +10,7 @@ pub struct Parser<'a> {
     current: Token,
     prev: Token,
     pub had_error: bool,
+    panic_mode: bool,
 }
 
 enum Precedence {
@@ -40,6 +41,7 @@ impl<'a> Parser<'a> {
             current: before_start_token.clone(),
             prev: before_start_token.clone(),
             had_error: false,
+            panic_mode: false,
         }
     }
 
@@ -75,8 +77,47 @@ impl<'a> Parser<'a> {
     }
 
     fn error_at(&mut self, token: &Token, msg: &'static str) {
+        if self.panic_mode {
+            // suppress cascading errors
+            return;
+        }
+        self.panic_mode = true;
         self.had_error = true;
-        eprintln!("Syntax error: {}, at line {}, on token '{}'", msg, token.line, self.string_from_src(token.start, token.length));
+
+        eprintln!(
+            "Syntax error: {}, at line {}, on token '{}'",
+            msg, 
+            token.line,
+            self.string_from_src(token.start, token.length)
+        )
+    }
+
+    fn synchronize(&mut self) {
+        self.panic_mode = false;
+
+        while self.current.ty != TokenType::Eof {
+            if self.prev.ty == TokenType::Semicolon {
+                // we finished the previous declaration and can
+                // try to resume parsing
+                return;
+            };
+            match self.current.ty {
+                TokenType::Fun
+                | TokenType::Var
+                | TokenType::If
+                | TokenType::For
+                | TokenType::While
+                | TokenType::Print        
+                | TokenType::Return => { 
+                    // we found a beginning of a new declaration
+                    // and can resume parsing safely
+                    return; 
+                }
+                _ => ()
+            }
+
+            self.advance()
+        }
     }
 
     fn number(&mut self) -> Expr {
@@ -156,7 +197,6 @@ impl<'a> Parser<'a> {
     /// expr (args?)
     fn call(&mut self, lhs: Expr) -> Expr {
         let mut args = Vec::new();
-        eprintln!("{:?}, {:?}", self.current.ty, self.prev.ty);
         if self.current.ty != TokenType::RParen {
             args = self.args();
         }
@@ -555,7 +595,7 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Decl {
-        match self.current.ty {
+        let decl = match self.current.ty {
             TokenType::Var => self.var_decl(),
             TokenType::Fun => self.fun_decl(),
             TokenType::LBrace => Decl {
@@ -579,7 +619,13 @@ impl<'a> Parser<'a> {
             _ => Decl {
                 kind: DeclKind::Stmt(self.expr_stmt()),
             }
+        };
+
+        if self.panic_mode {
+            self.synchronize();
         }
+
+        decl
     }
 
     pub fn parse(&mut self) -> Vec<Decl> {
@@ -841,7 +887,7 @@ mod tests {
     #[test]
     fn test_raising_precedence() {
         assert_expr(
-            "4 == 5 < 2 + 3 * -4",
+            "4 == 5 < 2 + 3 * -f(2)",
             binary(
                 BinOp::Equal,
                 literal(4),
@@ -851,7 +897,17 @@ mod tests {
                     binary(
                         BinOp::Add,
                         literal(2),
-                        binary(BinOp::Mul, literal(3), unary(UnOp::Neg, literal(4)))
+                        binary(
+                            BinOp::Mul,
+                            literal(3), 
+                            unary(
+                                UnOp::Neg,
+                                call_expr(
+                                    var_expr("f"),
+                                    vec![literal(2)]
+                                )
+                            )
+                        )
                     )
                 )
             )
@@ -861,19 +917,48 @@ mod tests {
     #[test]
     fn test_descending_precedence() {
         assert_expr(
-            "-4 * 3 + 2 > 5 == 4",
+            "-f(2) * 3 + 2 > 5 == 4",
             binary(
                 BinOp::Equal,
                 binary(
                     BinOp::Greater,
                     binary(
                         BinOp::Add,
-                        binary(BinOp::Mul, unary(UnOp::Neg, literal(4)), literal(3)),
+                        binary(
+                            BinOp::Mul,
+                            unary(
+                                UnOp::Neg,
+                                call_expr(var_expr("f"), vec![literal(2)]),
+                            ),
+                            literal(3)
+                        ),
                         literal(2),
                     ),
                     literal(5),
                 ),
                 literal(4),
+            )
+        )
+    }
+
+    #[test]
+    fn test_subscript_of_call() {
+        assert_expr(
+            "f(2)[3]",
+            subscript_expr(
+                call_expr(var_expr("f"), vec![literal(2)]), 
+                literal(3)
+            )
+        )
+    }
+
+    #[test]
+    fn test_call_of_subscript() {
+        assert_expr(
+            "a[2](3)",
+            call_expr(
+                subscript_expr(var_expr("a"), literal(2)),
+                vec![literal(3)],
             )
         )
     }

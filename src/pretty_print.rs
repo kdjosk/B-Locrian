@@ -151,8 +151,25 @@ impl<'a> AstPrinter<'a> {
             ExprKind::IntegerLit(val) => print!("{}", val),
             ExprKind::StringLit(val) => print!("\"{}\"", val),
             ExprKind::BoolLit(val) => print!("{}", val),
-            ExprKind::Call(_, _) => todo!(),
-            ExprKind::Subscript(_, _) => todo!(),
+            ExprKind::Call(f, args) => {
+                print!("call ");
+                self.walk_expr(f);
+                if !args.is_empty() {
+                    print!(" with args ");
+                    for (ix, arg) in args.iter().enumerate() {
+                        self.walk_expr(arg);
+                        if ix < args.len() - 1 {
+                            print!(", ");
+                        }
+                    }
+                }
+            }
+            ExprKind::Subscript(a, i) => {
+                print!("subscript ");
+                self.walk_expr(a);
+                print!(" at ");
+                self.walk_expr(i);
+            }
         }
     }
 
