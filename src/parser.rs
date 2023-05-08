@@ -9,7 +9,7 @@ pub struct Parser<'a> {
     scanner: Scanner<'a>,
     current: Token,
     prev: Token,
-    had_error: bool,
+    pub had_error: bool,
 }
 
 enum Precedence {
@@ -20,6 +20,8 @@ enum Precedence {
     Term = 10,
     Factor = 11,
     Unary = 30,
+    // includes (), []
+    Call = 31,
 }
 
 impl<'a> Parser<'a> {
@@ -68,11 +70,12 @@ impl<'a> Parser<'a> {
         self.error_at_current(msg);
     }
 
-    fn error_at_current(&self, msg: &'static str) {
-        self.error_at(&self.current, msg);
+    fn error_at_current(&mut self, msg: &'static str) {
+        self.error_at(&self.current.clone(), msg);
     }
 
-    fn error_at(&self, token: &Token, msg: &'static str) {
+    fn error_at(&mut self, token: &Token, msg: &'static str) {
+        self.had_error = true;
         eprintln!("Syntax error: {}, at line {}, on token '{}'", msg, token.line, self.string_from_src(token.start, token.length));
     }
 
@@ -132,50 +135,77 @@ impl<'a> Parser<'a> {
     }
 
     fn binary(&mut self, lhs: Expr) -> Expr {
-        let op = self.prev.ty;
-        let op = self.get_bin_op(op).unwrap();
-        let rhs = self.parse_precedence(self.precedence(op) as i32 + 1);
+        let op = self.get_bin_op(self.prev.ty);
+        let rhs = self.parse_precedence(self.precedence(self.prev.ty) as i32 + 1);
         Expr {
             kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
         }
     }
 
-    fn get_bin_op(&self, token_ty: TokenType) -> Option<BinOp> {
+    /// expr (, expr)*
+    fn args(&mut self) -> Vec<Expr> {
+        let mut args = Vec::new();
+        args.push(self.expression());
+        while self.current.ty == TokenType::Comma {
+            self.advance();  // go through ','
+            args.push(self.expression())
+        }
+        args
+    }
+
+    /// expr (args?)
+    fn call(&mut self, lhs: Expr) -> Expr {
+        let mut args = Vec::new();
+        eprintln!("{:?}, {:?}", self.current.ty, self.prev.ty);
+        if self.current.ty != TokenType::RParen {
+            args = self.args();
+        }
+        self.consume(TokenType::RParen, "Missing closing ')' in a call expression");
+        Expr {
+            kind: ExprKind::Call(Box::new(lhs), args)
+        }
+        
+    }
+
+    /// expr [expr]
+    fn subscript(&mut self, lhs: Expr) -> Expr {
+        self.advance();  // go through '['
+        let idx = self.expression();
+        self.consume(TokenType::RBracket, "Expected a closing ']' in subscript expression");
+        Expr {
+            kind: ExprKind::Subscript(Box::new(lhs), Box::new(idx))
+        }
+    }
+
+    fn get_bin_op(&self, token_ty: TokenType) -> BinOp {
         match token_ty {
-            TokenType::Plus => Some(BinOp::Add),
-            TokenType::Minus => Some(BinOp::Sub),
-            TokenType::Slash => Some(BinOp::Div),
-            TokenType::Star => Some(BinOp::Mul),
-            TokenType::Less => Some(BinOp::Less),
-            TokenType::Greater => Some(BinOp::Greater),
-            TokenType::LessEqual => Some(BinOp::LessOrEqual),
-            TokenType::GreaterEqual => Some(BinOp::GreaterOrEqual),
-            TokenType::EqualEqual => Some(BinOp::Equal),
-            TokenType::BangEqual => Some(BinOp::NotEqual),
-            TokenType::Equal => Some(BinOp::Assign),
-            _ => None,
+            TokenType::Plus => BinOp::Add,
+            TokenType::Minus => BinOp::Sub,
+            TokenType::Slash => BinOp::Div,
+            TokenType::Star => BinOp::Mul,
+            TokenType::Less => BinOp::Less,
+            TokenType::Greater => BinOp::Greater,
+            TokenType::LessEqual => BinOp::LessOrEqual,
+            TokenType::GreaterEqual => BinOp::GreaterOrEqual,
+            TokenType::EqualEqual => BinOp::Equal,
+            TokenType::BangEqual => BinOp::NotEqual,
+            TokenType::Equal => BinOp::Assign,
+            _ => unreachable!(),
         }
     }
 
-    fn precedence(&self, op: BinOp) -> Precedence {
-        match op {
-            BinOp::Add | BinOp::Sub => Precedence::Term,
-            BinOp::Div | BinOp::Mul => Precedence::Factor,
-            BinOp::Less | BinOp::LessOrEqual | BinOp::Greater | BinOp::GreaterOrEqual => {
-                Precedence::Comparison
-            }
-            BinOp::Equal | BinOp::NotEqual => Precedence::Equality,
-            BinOp::Assign => Precedence::Assignment,
-        }
-    }
-
-    fn get_current_precedence(&self) -> Precedence {
-        let token_ty = self.current.ty;
-
-        if let Some(op) = self.get_bin_op(token_ty) {
-            self.precedence(op)
-        } else {
-            Precedence::None
+    fn precedence(&self, token_ty: TokenType) -> Precedence {
+        match token_ty {
+            TokenType::Plus | TokenType::Minus => Precedence::Term,
+            TokenType::Star | TokenType::Slash => Precedence::Factor,
+            TokenType::Greater 
+            | TokenType::GreaterEqual 
+            | TokenType::Less 
+            | TokenType::LessEqual => Precedence::Comparison,
+            TokenType::EqualEqual | TokenType::BangEqual => Precedence::Equality,
+            TokenType::Equal => Precedence::Assignment,
+            TokenType::LParen => Precedence::Call,
+            _ => Precedence::None,
         }
     }
 
@@ -195,6 +225,7 @@ impl<'a> Parser<'a> {
     #[rustfmt::skip]
     fn get_infix_rule(&self, token_ty: TokenType) -> fn(&mut Self, Expr) -> Expr {
         match token_ty {
+            TokenType::LParen => Self::call,
             TokenType::Plus
             | TokenType::Minus
             | TokenType::Slash
@@ -220,7 +251,7 @@ impl<'a> Parser<'a> {
 
         let mut expr = prefix_rule(self);
 
-        while precedence <= self.get_current_precedence() as i32 {
+        while precedence <= self.precedence(self.current.ty) as i32 {
             self.advance();
             let infix_rule = self.get_infix_rule(self.prev.ty);
             expr = infix_rule(self, expr);
@@ -338,7 +369,7 @@ impl<'a> Parser<'a> {
     }
 
     // ident: ty (, ident: ty)*
-    fn parse_args(&mut self) -> (Vec<Ty>, Vec<String>) {
+    fn parse_params(&mut self) -> (Vec<Ty>, Vec<String>) {
         let mut names = Vec::new();
         let mut types = Vec::new();
         self.consume(TokenType::Identifier, "");
@@ -372,7 +403,7 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::LParen, "Expected a '(' after 'fn' keyword");
         let (mut types, mut names) = (None, None);
         if self.current.ty != TokenType::RParen {
-            let (t, n) = self.parse_args();
+            let (t, n) = self.parse_params();
             (types, names) = (Some(Box::new(t)), Some(n));
         }
 
@@ -573,10 +604,30 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::ast::{
-        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl, WhileLoop,
+        Decl, DeclKind, ForLoop, FunDecl, IfStmt, Stmt, StmtKind, Ty, TyKind, VarDecl, WhileLoop, Arg,
     };
 
     use super::*;
+
+    fn assert_expr(src: &'static str, expr: Expr) {
+        let mut parser = Parser::new(src);
+        let expr_ = parser.parse_expression();
+        assert_eq!(
+            expr,
+            expr_,
+        );
+        assert!(!parser.had_error);
+    }
+
+    fn assert_decl(src: &'static str, decl: Decl) {
+        let mut parser = Parser::new(src);
+        let decl_ = &parser.parse()[0];
+        assert_eq!(
+            &decl,
+            decl_,
+        );
+        assert!(!parser.had_error);
+    }
 
     fn literal(val: i64) -> Expr {
         Expr {
@@ -608,9 +659,21 @@ mod tests {
         }
     }
 
-    fn var_decl(name: String, ty: Ty, val: Option<Expr>) -> Decl {
+    fn call_expr(name: Expr, args: Vec<Expr>) -> Expr {
+        Expr {
+            kind: ExprKind::Call(Box::new(name), args)
+        }
+    }
+
+    fn subscript_expr(name: Expr, index: Expr) -> Expr {
+        Expr {
+            kind: ExprKind::Subscript(Box::new(name), Box::new(index))
+        }
+    }
+
+    fn var_decl(name: &'static str, ty: Ty, val: Option<Expr>) -> Decl {
         Decl {
-            kind: DeclKind::VarDecl(VarDecl { name, ty, val }),
+            kind: DeclKind::VarDecl(VarDecl { name: name.to_string(), ty, val }),
         }
     }
 
@@ -710,69 +773,58 @@ mod tests {
 
     #[test]
     fn test_addition() {
-        let expr = Parser::new("2 + 3").parse_expression();
-        assert_eq!(expr, binary(BinOp::Add, literal(2), literal(3)))
+        assert_expr("2 + 3", binary(BinOp::Add, literal(2), literal(3)))
     }
 
     #[test]
     fn test_subtraction() {
-        let expr = Parser::new("2 - 3").parse_expression();
-        assert_eq!(expr, binary(BinOp::Sub, literal(2), literal(3)))
+        assert_expr("2 - 3", binary(BinOp::Sub, literal(2), literal(3)))
     }
 
     #[test]
     fn test_multiplication() {
-        let expr = Parser::new("2 * 3").parse_expression();
-        assert_eq!(expr, binary(BinOp::Mul, literal(2), literal(3)))
+        assert_expr("2 * 3", binary(BinOp::Mul, literal(2), literal(3)))
     }
 
     #[test]
     fn test_division() {
-        let expr = Parser::new("2 / 3").parse_expression();
-        assert_eq!(expr, binary(BinOp::Div, literal(2), literal(3)))
+        assert_expr("2 / 3", binary(BinOp::Div, literal(2), literal(3)))
     }
 
     #[test]
     fn test_equality() {
-        let expr = Parser::new("2 == 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::Equal, literal(2), literal(4)))
+        assert_expr("2 == 4", binary(BinOp::Equal, literal(2), literal(4)))
     }
 
     #[test]
     fn test_not_equal() {
-        let expr = Parser::new("2 != 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::NotEqual, literal(2), literal(4)))
+        assert_expr("2 != 4", binary(BinOp::NotEqual, literal(2), literal(4)))
     }
 
     #[test]
     fn test_less() {
-        let expr = Parser::new("2 < 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::Less, literal(2), literal(4)))
+        assert_expr("2 < 4", binary(BinOp::Less, literal(2), literal(4)))
     }
 
     #[test]
     fn test_greater() {
-        let expr = Parser::new("2 > 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::Greater, literal(2), literal(4)))
+        assert_expr("2 > 4", binary(BinOp::Greater, literal(2), literal(4)))
     }
 
     #[test]
     fn test_less_or_equal() {
-        let expr = Parser::new("2 <= 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::LessOrEqual, literal(2), literal(4)))
+        assert_expr("2 <= 4", binary(BinOp::LessOrEqual, literal(2), literal(4)))
     }
 
     #[test]
     fn test_greater_or_equal() {
-        let expr = Parser::new("2 >= 4").parse_expression();
-        assert_eq!(expr, binary(BinOp::GreaterOrEqual, literal(2), literal(4)))
+        assert_expr("2 >= 4", binary(BinOp::GreaterOrEqual, literal(2), literal(4)))
     }
 
     #[test]
     fn test_grouping() {
-        let expr = Parser::new("(2 + 3) * 4").parse_expression();
-        assert_eq!(
-            expr,
+        assert_expr(
+            "(2 + 3) * 4",
             binary(
                 BinOp::Mul,
                 binary(BinOp::Add, literal(2), literal(3)),
@@ -783,15 +835,13 @@ mod tests {
 
     #[test]
     fn test_assignment() {
-        let expr = Parser::new("a = 2").parse_expression();
-        assert_eq!(expr, binary(BinOp::Assign, var_expr("a"), literal(2)))
+        assert_expr("a = 2", binary(BinOp::Assign, var_expr("a"), literal(2)))
     }
 
     #[test]
     fn test_raising_precedence() {
-        let expr = Parser::new("4 == 5 < 2 + 3 * -4").parse_expression();
-        assert_eq!(
-            expr,
+        assert_expr(
+            "4 == 5 < 2 + 3 * -4",
             binary(
                 BinOp::Equal,
                 literal(4),
@@ -810,9 +860,8 @@ mod tests {
 
     #[test]
     fn test_descending_precedence() {
-        let expr = Parser::new("-4 * 3 + 2 > 5 == 4").parse_expression();
-        assert_eq!(
-            expr,
+        assert_expr(
+            "-4 * 3 + 2 > 5 == 4",
             binary(
                 BinOp::Equal,
                 binary(
@@ -831,8 +880,23 @@ mod tests {
 
     #[test]
     fn test_var_expr() {
-        let expr = Parser::new("a").parse_expression();
-        assert_eq!(expr, var_expr("a"));
+        assert_expr("a", var_expr("a"));
+    }
+
+    #[test]
+    fn test_call_expr() {
+        assert_expr(
+            "a(b, 2 + 2)", 
+            call_expr(var_expr("a"), vec![var_expr("b"), binary(BinOp::Add, literal(2), literal(2))])
+        )
+    }
+
+    #[test]
+    fn test_subscript_expr() {
+        assert_expr(
+            "a[3 * 10]",
+            subscript_expr(var_expr("a"), binary(BinOp::Mul, literal(3), literal(10)))
+        )
     }
 
     #[test]
@@ -854,28 +918,18 @@ mod tests {
 
     #[test]
     fn test_var_decl_no_init() {
-        let decl = &Parser::new("var ident: int;").parse()[0];
-        assert_eq!(
-            decl,
-            &Decl {
-                kind: DeclKind::VarDecl(VarDecl {
-                    name: "ident".to_string(),
-                    ty: Ty {
-                        kind: TyKind::Int64
-                    },
-                    val: None
-                })
-            }
+        assert_decl(
+            "var ident: int;",
+            var_decl("ident", int_type(), None)
         )
     }
 
     #[test]
     fn test_var_decl_array_type() {
-        let decl = &Parser::new("var name: [char; 10];").parse()[0];
-        assert_eq!(
-            decl,
-            &var_decl(
-                "name".to_string(),
+        assert_decl(
+            "var name: [char; 10];",
+            var_decl(
+                "name",
                 array_type(literal(10), char_type()),
                 None
             )
@@ -884,11 +938,10 @@ mod tests {
 
     #[test]
     fn test_var_decl_fun_type() {
-        let decl = &Parser::new("var lambda: fn(char, int) -> string;").parse()[0];
-        assert_eq!(
-            decl,
-            &var_decl(
-                "lambda".to_string(),
+        assert_decl(
+            "var lambda: fn(char, int) -> string;",
+            var_decl(
+                "lambda",
                 function_type(string_type(), Some(Box::new(vec![char_type(), int_type()]))),
                 None
             )
@@ -897,33 +950,23 @@ mod tests {
 
     #[test]
     fn test_block_stmt() {
-        let decl = &Parser::new(
+        assert_decl(
             "{
                 print \"hello world\";
                 var a: int = 10;
             }",
-        )
-        .parse()[0];
-
-        assert_eq!(
-            decl,
-            &Decl {
-                kind: DeclKind::Stmt(Stmt {
-                    kind: StmtKind::Block(Box::new(vec![
+            decl_stmt(block_stmt(vec![
                         decl_stmt(print_stmt(string_literal("hello world"))),
-                        var_decl("a".to_string(), int_type(), Some(literal(10))),
+                        var_decl("a", int_type(), Some(literal(10))),
                     ]))
-                })
-            }
         )
     }
 
     #[test]
     fn test_fun_decl() {
-        let decl = &Parser::new("fn foo(a: int, b: int) -> int { return a * b;}").parse()[0];
-        assert_eq!(
-            decl,
-            &Decl {
+        assert_decl(
+            "fn foo(a: int, b: int) -> int { return a * b;}",
+            Decl {
                 kind: DeclKind::FunDecl(FunDecl {
                     name: "foo".to_string(),
                     ty: function_type(int_type(), Some(Box::new(vec![int_type(), int_type()]))),
@@ -940,7 +983,7 @@ mod tests {
 
     #[test]
     fn test_if_else_decl() {
-        let decl = &Parser::new(
+        assert_decl(
             "
             if is_true {
                 print \"true\";            
@@ -951,12 +994,7 @@ mod tests {
             } else {
                 print \"unknown\";
             }",
-        )
-        .parse()[0];
-
-        assert_eq!(
-            decl,
-            &decl_stmt(if_stmt(
+            decl_stmt(if_stmt(
                 var_expr("is_true"),
                 block_stmt(vec![decl_stmt(print_stmt(string_literal("true")))]),
                 if_stmt(
@@ -974,17 +1012,12 @@ mod tests {
 
     #[test]
     fn test_for_loop() {
-        let decl = &Parser::new(
+        assert_decl(
             "for (var i: int = 0; i < 10; i = i + 1) {
                  print \"loop\";
             }",
-        )
-        .parse()[0];
-
-        assert_eq!(
-            decl,
-            &decl_stmt(for_stmt(
-                Some(var_decl("i".to_string(), int_type(), Some(literal(0)))),
+            decl_stmt(for_stmt(
+                Some(var_decl("i", int_type(), Some(literal(0)))),
                 Some(binary(BinOp::Less, var_expr("i"), literal(10))),
                 Some(binary(BinOp::Assign, var_expr("i"), binary(BinOp::Add, var_expr("i"), literal(1)))),
                 block_stmt(vec![decl_stmt(print_stmt(string_literal("loop")))])
@@ -994,16 +1027,11 @@ mod tests {
 
     #[test]
     fn test_while_loop() {
-        let decl = &Parser::new(
+        assert_decl(
             "while a > 10 {
                 a = a - 1;
-            }"
-        )
-        .parse()[0];
-
-        assert_eq!(
-            decl,
-            &decl_stmt(
+            }",
+            decl_stmt(
                 while_stmt(
                     binary(BinOp::Greater, var_expr("a"), literal(10)), 
                     block_stmt(
